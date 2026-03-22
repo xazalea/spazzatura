@@ -151,6 +151,17 @@ export function createProvider(
       return new GLMFreeProvider(config as unknown as Partial<import('./glm-free.js').GLMFreeConfig>);
     case 'gpt4free-enhanced':
       return new GPT4FreeEnhancedProvider(config as unknown as Partial<import('./gpt4free-enhanced.js').GPT4FreeEnhancedConfig>);
+    // Alias types — backed by the closest compatible provider class
+    case 'free-gpt4-web':
+      return new GPT4FreeEnhancedProvider({
+        ...(config as unknown as Partial<import('./gpt4free-enhanced.js').GPT4FreeEnhancedConfig>),
+        baseUrl: config.baseUrl ?? 'http://localhost:3050',
+      });
+    case 'glm-free-xiaoY':
+      return new GLMFreeProvider({
+        ...(config as unknown as Partial<import('./glm-free.js').GLMFreeConfig>),
+        baseUrl: config.baseUrl ?? 'http://localhost:3049',
+      });
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }

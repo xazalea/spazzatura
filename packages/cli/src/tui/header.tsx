@@ -1,25 +1,19 @@
 /**
- * Animated ASCII art header for Spazzatura TUI.
- * Color-cycles through a gradient with scrolling marquee ticker.
+ * Header — minimal animated ASCII wordmark + scrolling provider ticker.
  */
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 
-const LOGO_LINES = [
-  '  ╔═══╗╔═══╗╔═══╗╔═══╗╔═══╗╔═══╗╔════╗╦   ╦╦═══╗╔═══╗',
-  '  ╚═══╗╠═══╝╠═══╣╔═══╝╔═══╣╠═══╣ ║   ║╠   ╣╠══╦╝╠═══╣',
-  '  ╚═══╝╩   ╩╩   ╩╚═══╝╚═══╝╩   ╩ ╩   ╩╚═══╝╩  ╚═╩   ╩',
-];
+// Compact single-line wordmark built from block chars
+const WORDMARK = '  S P A Z Z A T U R A';
+const DIVIDER  = '  ' + '─'.repeat(56);
 
-const TAGLINE = '  ◈  F R E E   F R O N T I E R   A I  ◈';
+const TICKER_CONTENT =
+  'Claude  ·  GPT-4  ·  Qwen  ·  GLM  ·  MiniMax  ·  Gemini  ·  DeepSeek  ·  Kimi  ·  Free & Open  ·  ';
 
-const TICKER_MSG =
-  '  Claude · GPT-4 · GLM · MiniMax · Qwen · Gemini · DeepSeek · Kimi · Free · Open · Unstoppable  ';
-
-const COLORS = ['magenta', 'cyan', 'blue', 'greenBright', 'white', 'cyan', 'magenta'] as const;
-type InkColor = (typeof COLORS)[number];
-
+const COLORS = ['cyan', 'magenta', 'blue', 'white', 'cyan', 'magenta'] as const;
+type C = (typeof COLORS)[number];
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 export interface HeaderProps {
@@ -28,53 +22,44 @@ export interface HeaderProps {
 }
 
 export function Header({ streaming, providerLabel }: HeaderProps): React.ReactElement {
-  const [colorIdx, setColorIdx] = useState(0);
-  const [spinIdx, setSpinIdx] = useState(0);
-  const [tickerPos, setTickerPos] = useState(0);
+  const [cIdx, setCIdx] = useState(0);
+  const [sIdx, setSIdx] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    const t = setInterval(() => setColorIdx(i => (i + 1) % COLORS.length), 150);
+    const t = setInterval(() => setCIdx(i => (i + 1) % COLORS.length), 400);
     return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
     if (!streaming) return;
-    const t = setInterval(() => setSpinIdx(i => (i + 1) % SPINNER.length), 80);
+    const t = setInterval(() => setSIdx(i => (i + 1) % SPINNER.length), 80);
     return () => clearInterval(t);
   }, [streaming]);
 
   useEffect(() => {
-    const t = setInterval(() => setTickerPos(p => (p + 1) % TICKER_MSG.length), 120);
+    const t = setInterval(() => setTick(p => (p + 1) % TICKER_CONTENT.length), 110);
     return () => clearInterval(t);
   }, []);
 
-  const logoColor: InkColor = COLORS[colorIdx] ?? 'cyan';
-  const tagColor: InkColor = COLORS[(colorIdx + 2) % COLORS.length] ?? 'magenta';
-  const accentColor: InkColor = COLORS[(colorIdx + 4) % COLORS.length] ?? 'white';
+  const c: C = COLORS[cIdx] ?? 'cyan';
+  const c2: C = COLORS[(cIdx + 2) % COLORS.length] ?? 'magenta';
 
-  // Scrolling ticker: duplicate string so we can slice cleanly
-  const doubled = TICKER_MSG + TICKER_MSG;
-  const ticker = doubled.slice(tickerPos, tickerPos + 58);
+  const doubled = TICKER_CONTENT + TICKER_CONTENT;
+  const tickerSlice = doubled.slice(tick, tick + 58);
 
-  const badge = streaming
-    ? <Text color="red" bold>{' [' + SPINNER[spinIdx] + ' LIVE]'}</Text>
-    : <Text color="greenBright" bold>{' [● READY]'}</Text>;
-
-  const providerBit = providerLabel
-    ? <Text dimColor>{'  via ' + providerLabel}</Text>
-    : null;
+  const statusBadge = streaming
+    ? `  ${SPINNER[sIdx] ?? '⠋'}  generating`
+    : `  ●  ${providerLabel ?? 'ready'}`;
 
   return (
-    <Box flexDirection="column" borderStyle="double" paddingX={1}>
-      {LOGO_LINES.map((line, i) => (
-        <Text key={'logo-' + i} color={logoColor} bold>{line}</Text>
-      ))}
-      <Box>
-        <Text color={tagColor} bold>{TAGLINE}</Text>
-        {badge}
-        {providerBit}
+    <Box flexDirection="column" paddingX={1} borderStyle="single" borderColor="gray">
+      <Box justifyContent="space-between">
+        <Text color={c} bold>{WORDMARK}</Text>
+        <Text color={streaming ? 'yellow' : 'greenBright'} dimColor={!streaming}>{statusBadge}</Text>
       </Box>
-      <Text color={accentColor} dimColor>{'  ' + ticker}</Text>
+      <Text color={c2} dimColor>{'  ' + tickerSlice}</Text>
+      <Text dimColor>{DIVIDER}</Text>
     </Box>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Chat panel — styled message bubbles, code blocks, animated streaming.
+ * Chat panel — minimal, professional message bubbles with ASCII borders.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -18,177 +18,124 @@ export interface ChatViewProps {
   readonly model?: string;
 }
 
-const SPINNER_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 function Timestamp(): React.ReactElement {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2, '0');
-  const m = String(now.getMinutes()).padStart(2, '0');
-  const s = String(now.getSeconds()).padStart(2, '0');
-  return <Text dimColor>{h + ':' + m + ':' + s}</Text>;
+  const d = new Date();
+  const t = [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map(n => String(n).padStart(2, '0')).join(':');
+  return <Text dimColor>{t}</Text>;
+}
+const TS = React.memo(Timestamp);
+
+function UserBubble({ m }: { m: Message }): React.ReactElement {
+  return (
+    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
+      <Box>
+        <Text color="green" bold>{'▸ you  '}</Text>
+        <TS />
+      </Box>
+      <Box paddingLeft={2}>
+        <Text color="gray">{'│ '}</Text>
+        <Text wrap="wrap">{m.content}</Text>
+      </Box>
+    </Box>
+  );
 }
 
-// Memoised timestamp so it doesn't re-tick on every render
-const MemoTimestamp = React.memo(Timestamp);
-
-function MessageBubble({ message, model }: { readonly message: Message; readonly model?: string }): React.ReactElement {
-  const isUser = message.role === 'user';
-  const isError = message.role === 'error';
-
-  const topBorder = '╭' + '─'.repeat(50) + '╮';
-  const botBorder = '╰' + '─'.repeat(50) + '╯';
-
-  if (isUser) {
-    return (
-      <Box flexDirection="column" marginBottom={1}>
-        <Text color="green" dimColor>{topBorder}</Text>
-        <Box>
-          <Text color="green" dimColor>{'│ '}</Text>
-          <Text color="greenBright" bold>{'▶ YOU'}</Text>
-          <Text>{'                                     '}</Text>
-          <MemoTimestamp />
-          <Text color="green" dimColor>{' │'}</Text>
-        </Box>
-        <Box>
-          <Text color="green" dimColor>{'│ '}</Text>
-          <Text wrap="wrap">{message.content}</Text>
-          <Text color="green" dimColor>{' │'}</Text>
-        </Box>
-        <Text color="green" dimColor>{botBorder}</Text>
-      </Box>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Box flexDirection="column" marginBottom={1}>
-        <Text color="red" dimColor>{topBorder}</Text>
-        <Box>
-          <Text color="red" dimColor>{'│ '}</Text>
-          <Text color="red" bold>{'✗ ERROR'}</Text>
-          <Text color="red" dimColor>{' │'}</Text>
-        </Box>
-        <Box>
-          <Text color="red" dimColor>{'│ '}</Text>
-          <Text color="red" wrap="wrap">{message.content}</Text>
-          <Text color="red" dimColor>{' │'}</Text>
-        </Box>
-        <Text color="red" dimColor>{botBorder}</Text>
-      </Box>
-    );
-  }
-
-  // Assistant
-  const modelLabel = model ? ' [' + model.slice(0, 16) + ']' : '';
+function AssistantBubble({ m, model }: { m: Message; model?: string }): React.ReactElement {
+  const tag = model ? model.slice(0, 18) : 'spaz';
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text color="cyan" dimColor>{topBorder}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
       <Box>
-        <Text color="cyan" dimColor>{'│ '}</Text>
-        <Text color="cyan" bold>{'◈ SPAZ'}</Text>
-        <Text color="magenta">{modelLabel}</Text>
-        <Text>{'                              '}</Text>
-        <MemoTimestamp />
-        <Text color="cyan" dimColor>{' │'}</Text>
+        <Text color="cyan" bold>{'◈ ' + tag + '  '}</Text>
+        <TS />
       </Box>
       <Box paddingLeft={2} flexDirection="column">
-        <Markdown content={message.content} />
+        <Text color="gray">{'│ '}</Text>
+        <Markdown content={m.content} />
       </Box>
-      <Text color="cyan" dimColor>{botBorder}</Text>
     </Box>
   );
 }
 
-function StreamingRow({ spinIdx }: { readonly spinIdx: number }): React.ReactElement {
-  const spin = SPINNER_CHARS[spinIdx % SPINNER_CHARS.length] ?? '⠋';
+function ErrorBubble({ m }: { m: Message }): React.ReactElement {
   return (
-    <Box marginLeft={2} marginBottom={1}>
-      <Text color="cyan">{spin + ' generating'}</Text>
-      <Text color="cyan" dimColor>{'...'}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
+      <Text color="red" bold>{'✗ error'}</Text>
+      <Box paddingLeft={2}>
+        <Text color="red" wrap="wrap">{m.content}</Text>
+      </Box>
     </Box>
   );
 }
 
-// Welcome art shown when no messages
-const WELCOME_LINES = [
-  '  ╔═════════════════════════════════════════════════════╗',
-  '  ║                                                     ║',
-  '  ║   ◈  S P A Z Z A T U R A                          ║',
-  '  ║      Free Frontier AI at your fingertips           ║',
-  '  ║                                                     ║',
-  '  ╠═════════════════════════════════════════════════════╣',
-  '  ║                                                     ║',
-  '  ║   [/]          open settings & model browser        ║',
-  '  ║   [@file.ts]   inject file context into message     ║',
-  '  ║   [/run ls]    execute shell commands               ║',
-  '  ║   [/save]      save conversation to disk            ║',
-  '  ║   [/load name] load saved conversation              ║',
-  '  ║   [^R]         reset conversation                   ║',
-  '  ║   [^C]         quit                                 ║',
-  '  ║                                                     ║',
-  '  ╚═════════════════════════════════════════════════════╝',
+// Minimal animated welcome panel
+const WELCOME = [
+  '  ┌──────────────────────────────────────────────┐',
+  '  │  S P A Z Z A T U R A                        │',
+  '  │  Free Frontier AI                           │',
+  '  ├──────────────────────────────────────────────┤',
+  '  │  /           settings & model browser       │',
+  '  │  @file.ts    inject file into message       │',
+  '  │  /save       save conversation              │',
+  '  │  /load name  load conversation              │',
+  '  │  ^R          reset conversation             │',
+  '  │  ^C          quit                           │',
+  '  └──────────────────────────────────────────────┘',
 ];
+
+const WCOLORS = ['cyan', 'white', 'gray', 'cyan'] as const;
+type WC = (typeof WCOLORS)[number];
 
 function WelcomeScreen(): React.ReactElement {
   const [idx, setIdx] = useState(0);
-  const COLORS = ['cyan', 'magenta', 'blue', 'cyan'] as const;
-
   useEffect(() => {
-    const t = setInterval(() => setIdx(i => (i + 1) % COLORS.length), 800);
+    const t = setInterval(() => setIdx(i => (i + 1) % WCOLORS.length), 1200);
     return () => clearInterval(t);
   }, []);
-
-  const c = COLORS[idx] ?? 'cyan';
+  const c: WC = WCOLORS[idx] ?? 'cyan';
   return (
     <Box flexDirection="column" marginTop={1}>
-      {WELCOME_LINES.map((line, i) => (
-        <Text key={'welcome-' + i} color={c}>{line}</Text>
+      {WELCOME.map((line, i) => (
+        <Text key={i} color={i === 0 || i === WELCOME.length - 1 || i === 3 ? 'gray' : c}>{line}</Text>
       ))}
     </Box>
   );
 }
 
-export function ChatView({
-  messages,
-  streaming,
-  input,
-  onChangeInput,
-  onSend,
-  model,
-}: ChatViewProps): React.ReactElement {
+export function ChatView({ messages, streaming, input, onChangeInput, onSend, model }: ChatViewProps): React.ReactElement {
   const [spinIdx, setSpinIdx] = useState(0);
-
   useEffect(() => {
     if (!streaming) return;
-    const t = setInterval(() => setSpinIdx(i => (i + 1) % SPINNER_CHARS.length), 80);
+    const t = setInterval(() => setSpinIdx(i => (i + 1) % SPINNER.length), 80);
     return () => clearInterval(t);
   }, [streaming]);
 
   const termRows = process.stdout.rows ?? 24;
-  // Reserve: header(8) + input(3) + status(2) = ~13
-  const visibleRows = Math.max(4, termRows - 13);
-  const estimatedMsgsVisible = Math.floor(visibleRows / 5);
-  const visibleMessages = messages.slice(-Math.max(estimatedMsgsVisible, 3));
+  const visibleRows = Math.max(4, termRows - 14);
+  const visible = messages.slice(-Math.max(Math.floor(visibleRows / 5), 3));
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Messages */}
       <Box flexDirection="column" flexGrow={1} paddingX={1} overflowY="hidden">
         {messages.length === 0 && !streaming && <WelcomeScreen />}
-        {visibleMessages.map((m, i) => (
-          <MessageBubble key={'msg-' + i + '-' + m.role} message={m} model={model} />
-        ))}
-        {streaming && <StreamingRow spinIdx={spinIdx} />}
+        {visible.map((m, i) => {
+          if (m.role === 'user')      return <UserBubble      key={`msg-${i}-${m.role}`} m={m} />;
+          if (m.role === 'error')     return <ErrorBubble     key={`msg-${i}-${m.role}`} m={m} />;
+          return                             <AssistantBubble key={`msg-${i}-${m.role}`} m={m} model={model} />;
+        })}
+        {streaming && (
+          <Box paddingLeft={4} marginBottom={1}>
+            <Text color="cyan">{(SPINNER[spinIdx] ?? '⠋') + '  thinking'}</Text>
+            <Text dimColor>{'...'}</Text>
+          </Box>
+        )}
       </Box>
 
-      {/* Input */}
-      <Box borderStyle="round" borderColor="cyan" paddingX={1} marginX={1}>
+      <Box borderStyle="single" borderColor="cyan" paddingX={1} marginX={1}>
         <Text color="cyan" bold>{'❯ '}</Text>
-        <TextInput
-          value={input}
-          onChange={onChangeInput}
-          onSubmit={(v) => { onSend(v); }}
-        />
+        <TextInput value={input} onChange={onChangeInput} onSubmit={onSend} />
       </Box>
     </Box>
   );

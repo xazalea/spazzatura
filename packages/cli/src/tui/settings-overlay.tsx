@@ -1,5 +1,5 @@
 /**
- * Settings overlay — command palette: model browser, provider info, app settings.
+ * Settings overlay — minimal command palette: model browser, providers, settings.
  * Triggered by typing "/" in the input field.
  */
 
@@ -26,287 +26,199 @@ export interface SettingsOverlayProps {
 
 type Category = 'models' | 'providers' | 'settings';
 
-const CATEGORIES: { id: Category; label: string }[] = [
-  { id: 'models', label: 'Models' },
-  { id: 'providers', label: 'Providers' },
-  { id: 'settings', label: 'Settings' },
+const CATS: { id: Category; label: string; key: string }[] = [
+  { id: 'models',    label: 'Models',    key: 'm' },
+  { id: 'providers', label: 'Providers', key: 'p' },
+  { id: 'settings',  label: 'Settings',  key: 's' },
 ];
 
-const PULSE = ['◈', '◇', '◈', '◆'] as const;
-const COLORS = ['cyan', 'magenta', 'blue', 'cyan'] as const;
+const BLINK = ['─', '─', ' ', '─'] as const;
 
 function buildModelList(providers: AvailableProvider[]): Array<{ provider: string; model: string }> {
-  const models: Array<{ provider: string; model: string }> = [];
+  const out: Array<{ provider: string; model: string }> = [];
   for (const p of providers) {
     try {
       const cfg = getDefaultProviderConfig(p.type as ExtendedProviderType);
-      const modelList = cfg.models ?? (cfg.defaultModel ? [cfg.defaultModel] : []);
-      for (const m of modelList) {
-        models.push({ provider: p.type, model: m });
-      }
+      const list = cfg.models ?? (cfg.defaultModel ? [cfg.defaultModel] : []);
+      for (const m of list) out.push({ provider: p.type, model: m });
     } catch { /* skip */ }
   }
-  return models;
+  return out;
 }
 
-export function SettingsOverlay({
-  onClose,
-  activeModel,
-  activeProvider,
-  onSelectModel,
-  ollamaEnabled,
-  onToggleOllama,
-  availableProviders,
-}: SettingsOverlayProps): React.ReactElement {
-  const [category, setCategory] = useState<Category>('models');
+export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelectModel, ollamaEnabled, onToggleOllama, availableProviders }: SettingsOverlayProps): React.ReactElement {
   const [catIdx, setCatIdx] = useState(0);
   const [itemIdx, setItemIdx] = useState(0);
-  const [pulseIdx, setPulseIdx] = useState(0);
-  const [colorIdx, setColorIdx] = useState(0);
+  const [blink, setBlink] = useState(0);
 
   useEffect(() => {
-    const t = setInterval(() => setPulseIdx(i => (i + 1) % PULSE.length), 400);
+    const t = setInterval(() => setBlink(i => (i + 1) % BLINK.length), 400);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    const t = setInterval(() => setColorIdx(i => (i + 1) % COLORS.length), 200);
-    return () => clearInterval(t);
-  }, []);
-
+  const category = CATS[catIdx]!.id;
   const allModels = buildModelList(availableProviders);
+
+  function maxIdx(): number {
+    if (category === 'models')    return Math.max(0, allModels.length - 1);
+    if (category === 'providers') return Math.max(0, availableProviders.length - 1);
+    return 0;
+  }
 
   useInput((input, key) => {
     if (key.escape) { onClose(); return; }
-
     if (key.tab) {
-      const next = (catIdx + 1) % CATEGORIES.length;
-      setCatIdx(next);
-      setCategory(CATEGORIES[next]!.id);
-      setItemIdx(0);
-      return;
+      const n = (catIdx + 1) % CATS.length;
+      setCatIdx(n); setItemIdx(0); return;
     }
-
-    if (key.upArrow) { setItemIdx(i => Math.max(0, i - 1)); return; }
-
-    if (key.downArrow) {
-      const maxIdx = getMaxIdx(category, allModels, availableProviders);
-      setItemIdx(i => Math.min(maxIdx, i + 1));
-      return;
-    }
-
+    if (key.upArrow)   { setItemIdx(i => Math.max(0, i - 1)); return; }
+    if (key.downArrow) { setItemIdx(i => Math.min(maxIdx(), i + 1)); return; }
     if (key.return) {
-      handleSelect(category, itemIdx, allModels, availableProviders, onSelectModel, onToggleOllama, onClose);
+      if (category === 'models') {
+        const e = allModels[itemIdx];
+        if (e) { onSelectModel(e.provider, e.model); onClose(); }
+      } else if (category === 'settings') {
+        onToggleOllama();
+      }
       return;
     }
-
-    // Letter shortcuts: m = models, p = providers, s = settings
-    if (input === 'm') { setCatIdx(0); setCategory('models'); setItemIdx(0); return; }
-    if (input === 'p') { setCatIdx(1); setCategory('providers'); setItemIdx(0); return; }
-    if (input === 's') { setCatIdx(2); setCategory('settings'); setItemIdx(0); return; }
+    for (let i = 0; i < CATS.length; i++) {
+      if (input === CATS[i]!.key) { setCatIdx(i); setItemIdx(0); return; }
+    }
   });
 
-  const pulse = PULSE[pulseIdx] ?? '◈';
-  const headerColor = COLORS[colorIdx] ?? 'cyan';
+  const bl = BLINK[blink] ?? '─';
+  const hLine = '─'.repeat(68);
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="double"
-      borderColor={headerColor}
-      alignSelf="center"
-      width={72}
-    >
+    <Box flexDirection="column" borderStyle="single" borderColor="gray" alignSelf="center" width={72}>
       {/* Header */}
-      <Box justifyContent="space-between" paddingX={1}>
-        <Text bold color={headerColor}>{pulse + ' SPAZZATURA SETTINGS'}</Text>
-        <Text dimColor>{'[Tab] switch  [↑↓] navigate  [Enter] select  [Esc] close'}</Text>
+      <Box paddingX={1} justifyContent="space-between">
+        <Text color="cyan" bold>{'◈ SETTINGS'}</Text>
+        <Text dimColor>{'[Tab] switch · [↑↓] nav · [Enter] select · [Esc] close'}</Text>
       </Box>
-      <Text color="gray">{'╠' + '═'.repeat(70) + '╣'}</Text>
+      <Text dimColor>{' ' + hLine}</Text>
 
-      {/* Two-pane layout */}
       <Box flexDirection="row">
-        {/* Left: category list */}
-        <Box flexDirection="column" width={16} paddingX={1} borderStyle="single" borderColor="gray">
-          {CATEGORIES.map((c, i) => (
+        {/* Left nav */}
+        <Box flexDirection="column" width={14} paddingX={1}>
+          {CATS.map((c, i) => (
             <Box key={c.id}>
               <Text color={i === catIdx ? 'cyan' : 'gray'} bold={i === catIdx}>
                 {(i === catIdx ? '▸ ' : '  ') + c.label}
               </Text>
             </Box>
           ))}
-          <Text> </Text>
+          <Text>{' '}</Text>
           <Text dimColor>{'[m/p/s]'}</Text>
         </Box>
 
-        {/* Right: content pane */}
+        {/* Divider */}
+        <Box flexDirection="column">
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+          <Text dimColor>{'│'}</Text>
+        </Box>
+
+        {/* Right content */}
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
           {category === 'models' && (
-            <ModelsPane
-              models={allModels}
-              activeModel={activeModel}
-              activeProvider={activeProvider}
-              selectedIdx={itemIdx}
-            />
+            <ModelsPane models={allModels} activeModel={activeModel} activeProvider={activeProvider} selectedIdx={itemIdx} blink={bl} />
           )}
           {category === 'providers' && (
-            <ProvidersPane
-              providers={availableProviders}
-              selectedIdx={itemIdx}
-            />
+            <ProvidersPane providers={availableProviders} selectedIdx={itemIdx} />
           )}
           {category === 'settings' && (
-            <SettingsPane
-              ollamaEnabled={ollamaEnabled}
-              selectedIdx={itemIdx}
-            />
+            <SettingsPane ollamaEnabled={ollamaEnabled} selectedIdx={itemIdx} />
           )}
         </Box>
       </Box>
 
-      {/* Footer hint */}
-      <Text color="gray">{'╠' + '═'.repeat(70) + '╣'}</Text>
-      <Box justifyContent="center" paddingX={1}>
-        {category === 'models' && <Text dimColor>Press <Text color="yellow" bold>[Enter]</Text> to switch to selected model</Text>}
-        {category === 'providers' && <Text dimColor>Provider availability — read only</Text>}
-        {category === 'settings' && <Text dimColor>Press <Text color="yellow" bold>[Enter]</Text> to toggle setting</Text>}
+      <Text dimColor>{' ' + hLine}</Text>
+      <Box paddingX={1}>
+        {category === 'models'    && <Text dimColor>{'[Enter] switch model  ·  ' + String(allModels.length) + ' models available'}</Text>}
+        {category === 'providers' && <Text dimColor>{'provider availability — read only'}</Text>}
+        {category === 'settings'  && <Text dimColor>{'[Enter] toggle  ·  saved to ~/.spazzatura/settings.json'}</Text>}
       </Box>
     </Box>
   );
 }
 
-function getMaxIdx(
-  category: Category,
-  models: Array<{ provider: string; model: string }>,
-  providers: AvailableProvider[],
-): number {
-  if (category === 'models') return Math.max(0, models.length - 1);
-  if (category === 'providers') return Math.max(0, providers.length - 1);
-  return 0; // settings: 1 item (ollama toggle)
-}
-
-function handleSelect(
-  category: Category,
-  itemIdx: number,
-  models: Array<{ provider: string; model: string }>,
-  _providers: AvailableProvider[],
-  onSelectModel: (provider: string, model: string) => void,
-  onToggleOllama: () => void,
-  onClose: () => void,
-): void {
-  if (category === 'models') {
-    const entry = models[itemIdx];
-    if (entry) { onSelectModel(entry.provider, entry.model); onClose(); }
-  } else if (category === 'settings') {
-    onToggleOllama();
-  }
-}
-
-function ModelsPane({
-  models,
-  activeModel,
-  activeProvider,
-  selectedIdx,
-}: {
+function ModelsPane({ models, activeModel, activeProvider, selectedIdx, blink }: {
   models: Array<{ provider: string; model: string }>;
   activeModel?: string;
   activeProvider?: string;
   selectedIdx: number;
+  blink: string;
 }): React.ReactElement {
   const viewStart = Math.max(0, selectedIdx - 8);
-  const visible = models.slice(viewStart, viewStart + 16);
-
+  const visible = models.slice(viewStart, viewStart + 14);
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">{'◈ All Available Models'}</Text>
-      <Text color="gray">{'─'.repeat(50)}</Text>
-      {visible.map((entry, i) => {
-        const realIdx = viewStart + i;
-        const isActive = entry.model === activeModel && entry.provider === activeProvider;
-        const isSelected = realIdx === selectedIdx;
-        const modelShort = entry.model.slice(0, 30);
-        const provShort = entry.provider.slice(0, 12).padEnd(12);
-
+      <Text dimColor>{'Models  ' + blink}</Text>
+      {visible.map((e, i) => {
+        const ri = viewStart + i;
+        const isActive = e.model === activeModel && e.provider === activeProvider;
+        const isSel = ri === selectedIdx;
         return (
-          <Box key={entry.provider + ':' + entry.model}>
-            <Text color={isSelected ? 'yellow' : 'transparent'}>{isSelected ? '▸ ' : '  '}</Text>
+          <Box key={e.provider + ':' + e.model}>
+            <Text color={isSel ? 'yellow' : 'transparent'}>{isSel ? '▸' : ' '}</Text>
             <Text color={isActive ? 'greenBright' : 'transparent'}>{isActive ? '●' : ' '}</Text>
-            <Text> </Text>
-            <Text color="gray" dimColor>{provShort}</Text>
-            <Text color="gray">{'  '}</Text>
-            <Text color={isActive ? 'greenBright' : isSelected ? 'white' : 'gray'} bold={isActive}>
-              {modelShort}
+            <Text dimColor>{'  ' + e.provider.slice(0, 10).padEnd(10) + '  '}</Text>
+            <Text color={isActive ? 'greenBright' : isSel ? 'white' : 'gray'} bold={isActive}>
+              {e.model.slice(0, 28)}
             </Text>
           </Box>
         );
       })}
-      {models.length === 0 && <Text dimColor>  No models available</Text>}
-      <Text> </Text>
-      <Text dimColor>{String(selectedIdx + 1) + ' / ' + String(models.length) + ' models'}</Text>
+      {models.length === 0 && <Text dimColor>  no models found</Text>}
     </Box>
   );
 }
 
-function ProvidersPane({
-  providers,
-  selectedIdx,
-}: {
-  providers: AvailableProvider[];
-  selectedIdx: number;
-}): React.ReactElement {
+function ProvidersPane({ providers, selectedIdx }: { providers: AvailableProvider[]; selectedIdx: number }): React.ReactElement {
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">{'◈ Provider Status'}</Text>
-      <Text color="gray">{'─'.repeat(50)}</Text>
+      <Text dimColor>{'Providers'}</Text>
       {providers.map((p, i) => {
-        const isSelected = i === selectedIdx;
-        const status = p.configured
-          ? (p.free ? <Text color="greenBright">{'● free   '}</Text> : <Text color="yellow">{'● paid   '}</Text>)
-          : <Text color="red">{'○ unavail'}</Text>;
+        const isSel = i === selectedIdx;
+        const dot = p.configured ? (p.free ? '●' : '◉') : '○';
+        const dotColor = p.configured ? (p.free ? 'greenBright' : 'yellow') : 'gray';
         return (
           <Box key={p.type}>
-            <Text color={isSelected ? 'yellow' : 'transparent'}>{isSelected ? '▸ ' : '  '}</Text>
-            {status}
-            <Text> </Text>
-            <Text color={isSelected ? 'white' : 'gray'}>{p.type}</Text>
+            <Text color={isSel ? 'yellow' : 'transparent'}>{isSel ? '▸' : ' '}</Text>
+            <Text color={dotColor}>{' ' + dot + ' '}</Text>
+            <Text color={isSel ? 'white' : 'gray'}>{p.type.padEnd(20)}</Text>
+            <Text dimColor>{p.free ? 'free' : p.configured ? 'paid' : '─'}</Text>
           </Box>
         );
       })}
-      {providers.length === 0 && <Text dimColor>  No providers detected</Text>}
     </Box>
   );
 }
 
-function SettingsPane({
-  ollamaEnabled,
-  selectedIdx,
-}: {
-  ollamaEnabled: boolean;
-  selectedIdx: number;
-}): React.ReactElement {
+function SettingsPane({ ollamaEnabled, selectedIdx }: { ollamaEnabled: boolean; selectedIdx: number }): React.ReactElement {
   return (
     <Box flexDirection="column">
-      <Text bold color="cyan">{'◈ App Settings'}</Text>
-      <Text color="gray">{'─'.repeat(50)}</Text>
-      <Text> </Text>
-
-      {/* Ollama toggle */}
+      <Text dimColor>{'Settings'}</Text>
+      <Text>{' '}</Text>
       <Box>
-        <Text color={selectedIdx === 0 ? 'yellow' : 'transparent'}>{selectedIdx === 0 ? '▸ ' : '  '}</Text>
-        <Text color={ollamaEnabled ? 'greenBright' : 'gray'}>
-          {ollamaEnabled ? '[ON ] ' : '[OFF] '}
-        </Text>
-        <Text color={selectedIdx === 0 ? 'white' : 'gray'} bold={selectedIdx === 0}>
-          {'Ollama (local LLM)'}
-        </Text>
+        <Text color={selectedIdx === 0 ? 'yellow' : 'transparent'}>{selectedIdx === 0 ? '▸' : ' '}</Text>
+        <Text color={ollamaEnabled ? 'greenBright' : 'gray'}>{ollamaEnabled ? ' [ON ] ' : ' [OFF] '}</Text>
+        <Text color={selectedIdx === 0 ? 'white' : 'gray'} bold={selectedIdx === 0}>{'Ollama local LLM'}</Text>
       </Box>
-      <Text dimColor>{'     Runs local models via Ollama daemon'}</Text>
-      <Text dimColor>{'     Persisted to ~/.spazzatura/settings.json'}</Text>
-
-      <Text> </Text>
-      <Box>
-        <Text dimColor>{'  More settings coming soon...'}</Text>
-      </Box>
+      <Text dimColor>{'       enables local model inference via Ollama daemon'}</Text>
+      <Text>{' '}</Text>
+      <Text dimColor>{'  more settings coming soon'}</Text>
     </Box>
   );
 }

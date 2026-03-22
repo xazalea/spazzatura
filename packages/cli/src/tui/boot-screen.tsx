@@ -1,21 +1,29 @@
 /**
- * Boot screen — shown briefly while services and auth are initializing.
- * Full ASCII art with animated progress bars and service status.
+ * Boot screen — minimal, professional ASCII art with animated progress.
  */
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 
+// Compact block-letter logo
 const LOGO = [
-  '  ╔═══╗╔═══╗╔═══╗╔═══╗╔═══╗╔═══╗╔════╗╦   ╦╦═══╗╔═══╗',
-  '  ╚═══╗╠═══╝╠═══╣╔═══╝╔═══╣╠═══╣ ║   ║╠   ╣╠══╦╝╠═══╣',
-  '  ╚═══╝╩   ╩╩   ╩╚═══╝╚═══╝╩   ╩ ╩   ╩╚═══╝╩  ╚═╩   ╩',
+  '  ┌─────────────────────────────────────────────────────┐',
+  '  │                                                     │',
+  '  │   ░██████╗ ██████╗  █████╗ ███████╗███████╗        │',
+  '  │   ██╔════╝ ██╔══██╗██╔══██╗╚══███╔╝╚══███╔╝        │',
+  '  │   ╚█████╗  ██████╔╝███████║  ███╔╝   ███╔╝         │',
+  '  │    ╚═══██╗ ██╔═══╝ ██╔══██║ ███╔╝   ███╔╝          │',
+  '  │   ██████╔╝ ██║     ██║  ██║███████╗███████╗        │',
+  '  │   ╚═════╝  ╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝        │',
+  '  │                                                     │',
+  '  │            F R E E   F R O N T I E R   A I         │',
+  '  │                                                     │',
+  '  └─────────────────────────────────────────────────────┘',
 ];
 
-const TAGLINE = '  ◈  F R E E   F R O N T I E R   A I  ◈';
-
-const COLORS = ['cyan', 'magenta', 'blue', 'greenBright', 'white', 'cyan'] as const;
+const COLORS = ['cyan', 'white', 'blue', 'cyan', 'magenta', 'white'] as const;
 type C = (typeof COLORS)[number];
+const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
 export interface BootEntry {
   label: string;
@@ -28,30 +36,20 @@ export interface BootScreenProps {
   done: boolean;
 }
 
-function StatusIcon({ status }: { status: BootEntry['status'] }): React.ReactElement {
-  switch (status) {
-    case 'ok':   return <Text color="greenBright">{'✓'}</Text>;
-    case 'fail': return <Text color="red">{'✗'}</Text>;
-    case 'skip': return <Text color="gray">{'─'}</Text>;
-    case 'running': return <Text color="yellow">{'◌'}</Text>;
-    default:     return <Text color="gray">{'·'}</Text>;
-  }
-}
-
-function StatusColor(status: BootEntry['status']): C {
-  if (status === 'ok') return 'greenBright';
-  if (status === 'fail') return 'cyan';
-  if (status === 'running') return 'white';
-  return 'gray';
+function StatusIcon({ s }: { s: BootEntry['status'] }): React.ReactElement {
+  if (s === 'ok')      return <Text color="greenBright">{'✓'}</Text>;
+  if (s === 'fail')    return <Text color="red">{'✗'}</Text>;
+  if (s === 'skip')    return <Text color="gray">{'─'}</Text>;
+  if (s === 'running') return <Text color="yellow">{'◌'}</Text>;
+  return <Text dimColor>{'·'}</Text>;
 }
 
 export function BootScreen({ entries, done }: BootScreenProps): React.ReactElement {
-  const [colorIdx, setColorIdx] = useState(0);
+  const [cIdx, setCIdx] = useState(0);
   const [spin, setSpin] = useState(0);
-  const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 
   useEffect(() => {
-    const t = setInterval(() => setColorIdx(i => (i + 1) % COLORS.length), 120);
+    const t = setInterval(() => setCIdx(i => (i + 1) % COLORS.length), 300);
     return () => clearInterval(t);
   }, []);
 
@@ -61,55 +59,47 @@ export function BootScreen({ entries, done }: BootScreenProps): React.ReactEleme
     return () => clearInterval(t);
   }, [done]);
 
-  const logoColor = COLORS[colorIdx] ?? 'cyan';
-  const accentColor = COLORS[(colorIdx + 2) % COLORS.length] ?? 'magenta';
-  const spinChar = SPIN[spin] ?? '⠋';
+  const lc: C = COLORS[cIdx] ?? 'cyan';
+  const sc: C = COLORS[(cIdx + 3) % COLORS.length] ?? 'white';
 
   const total = entries.length;
-  const done_count = entries.filter(e => e.status === 'ok' || e.status === 'skip').length;
-  const barWidth = 40;
-  const filled = total > 0 ? Math.round((done_count / total) * barWidth) : 0;
-  const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
-  const pct = total > 0 ? Math.round((done_count / total) * 100) : 0;
+  const doneCount = entries.filter(e => e.status === 'ok' || e.status === 'skip').length;
+  const bw = 40;
+  const filled = total > 0 ? Math.round((doneCount / total) * bw) : 0;
+  const bar = '█'.repeat(filled) + '░'.repeat(bw - filled);
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
   return (
-    <Box flexDirection="column" alignItems="center" justifyContent="center" paddingY={1}>
-      {/* Animated logo */}
-      <Box flexDirection="column" alignItems="center">
-        {LOGO.map((line, i) => (
-          <Text key={'boot-logo-' + i} color={logoColor} bold>{line}</Text>
-        ))}
-        <Text color={accentColor} bold>{TAGLINE}</Text>
-      </Box>
+    <Box flexDirection="column" alignItems="center" paddingY={1}>
+      {LOGO.map((line, i) => (
+        <Text key={i} color={i === 0 || i === LOGO.length - 1 ? 'gray' : lc} bold={i > 1 && i < LOGO.length - 2}>{line}</Text>
+      ))}
 
-      <Box marginY={1}>
-        <Text color="gray">{'  ' + '═'.repeat(58) + '  '}</Text>
-      </Box>
-
-      {/* Progress bar */}
-      <Box flexDirection="column" alignItems="center" marginBottom={1}>
-        <Text color={done ? 'greenBright' : 'yellow'} bold>
-          {done ? '  ✓  READY  ' : `  ${spinChar}  INITIALIZING  `}
+      <Box marginTop={1} flexDirection="column" alignItems="center">
+        <Text color={done ? 'greenBright' : 'yellow'}>
+          {done ? '  ✓  READY' : `  ${SPIN[spin] ?? '⠋'}  INITIALIZING`}
         </Text>
-        <Text color={done ? 'greenBright' : 'yellow'}>{`  [${bar}]  ${pct}%`}</Text>
+        <Text color={done ? 'greenBright' : sc}>{`  [${bar}] ${pct}%`}</Text>
       </Box>
 
-      {/* Service list */}
-      <Box flexDirection="column" paddingX={4}>
+      <Box flexDirection="column" marginTop={1} paddingX={4}>
         {entries.map((e, i) => (
-          <Box key={'boot-entry-' + i}>
-            <StatusIcon status={e.status} />
+          <Box key={i}>
+            <StatusIcon s={e.status} />
             <Text>{'  '}</Text>
-            <Text color={StatusColor(e.status)} bold={e.status === 'running'}>
-              {e.label.padEnd(28)}
+            <Text
+              color={e.status === 'ok' ? 'greenBright' : e.status === 'running' ? 'white' : 'gray'}
+              bold={e.status === 'running'}
+            >
+              {e.label.padEnd(26)}
             </Text>
-            {e.detail && <Text dimColor>{e.detail}</Text>}
+            {e.detail ? <Text dimColor>{e.detail}</Text> : null}
           </Box>
         ))}
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>{'  Type a message to start chatting  •  [/] settings  •  [^C] quit'}</Text>
+        <Text dimColor>{'  press [Esc] to skip  ·  [^C] quit'}</Text>
       </Box>
     </Box>
   );

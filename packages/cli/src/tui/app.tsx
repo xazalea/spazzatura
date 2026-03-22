@@ -107,7 +107,14 @@ function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
       if (prov !== undefined) providerConfigs.unshift(prov);
     }
   }
-  return createRouter(providerConfigs, getDefaultRoutingConfig());
+  try {
+    return createRouter(providerConfigs, getDefaultRoutingConfig());
+  } catch {
+    // Fallback: retry with only well-known safe providers
+    const safeTypes = ['gpt4free', 'chat2api', 'gpt4free-enhanced', 'freeglm', 'glm-free', 'aiclient', 'webai', 'qwen', 'glm', 'minimax', 'claude-free'];
+    const safe = providerConfigs.filter(c => safeTypes.includes(c.type));
+    return createRouter(safe.length > 0 ? safe : providerConfigs.slice(0, 1), getDefaultRoutingConfig());
+  }
 }
 
 function buildAllModels(providers: AvailableProvider[], ollamaEnabled: boolean): ModelEntry[] {
@@ -221,7 +228,14 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
 
       // Step 2: build router
       updateBoot(2, { status: 'running' });
-      const r = buildRouter(provider, ollamaEnabled);
+      let r: ProviderRouter;
+      try {
+        r = buildRouter(provider, ollamaEnabled);
+      } catch (e) {
+        updateBoot(2, { status: 'fail', detail: String(e).slice(0, 30) });
+        setTimeout(() => setLayout('chat'), 1800);
+        return;
+      }
       setRouter(r);
       const firstProvider = provider ?? configuredFree[0]?.type ?? 'auto';
       setActiveProvider(firstProvider);
