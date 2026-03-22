@@ -104,17 +104,19 @@ const DEFAULT_BASE_URLS: Record<ExtendedProviderType, string> = {
  * Default models for providers
  */
 const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
-  minimax: ['abab6.5s-chat', 'abab6.5g-chat', 'abab6.5t-chat', 'hailuo', 'MiniMax-Text-01'],
-  qwen: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+  // LLM-Red-Team/minimax-free-api — hailuoai.com web session proxy
+  minimax: ['hailuo', 'MiniMax-Text-01', 'MiniMax-VL-01'],
+  // LLM-Red-Team/qwen-free-api — tongyi.aliyun.com web session proxy
+  qwen: ['qwen', 'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-long'],
   gpt4free: ['gpt-3.5-turbo', 'gpt-4'],
-  glm: ['glm-4', 'glm-4-plus', 'glm-4-air', 'glm-4-zero'],
+  // LLM-Red-Team/glm-free-api — chatglm.cn web session proxy
+  glm: ['glm-4-plus', 'glm-4', 'glm-4-zero', 'glm-4-think', 'glm-4-flash', 'cogview-3'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-mini', 'o3-mini'],
   anthropic: [
     'claude-opus-4-6',
     'claude-sonnet-4-6',
     'claude-haiku-4-5-20251001',
     'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
   ],
   openrouter: [
     'meta-llama/llama-3.2-3b-instruct:free',
@@ -122,19 +124,33 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
     'openai/gpt-4o',
     'google/gemini-flash-1.5',
     'deepseek/deepseek-chat',
-    'qwen/qwen-2.5-72b-instruct',
-    'mistralai/mistral-large',
   ],
-  ollama: ['llama3.2:1b', 'llama3.2', 'mistral', 'codellama', 'deepseek-coder-v2', 'qwen2.5-coder'],
+  ollama: ['llama3.2', 'mistral', 'codellama', 'deepseek-coder-v2'],
   custom: [],
-  chat2api: ['deepseek-v3', 'glm-4', 'kimi-latest', 'minimax-text-01', 'qwen-max', 'z-ai'],
-  'claude-free': ['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus', 'claude-3-5-sonnet'],
-  webai: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
-  aiclient: ['gpt-4o', 'claude-3-5-sonnet', 'gemini-pro', 'deepseek-v3'],
-  freeglm: ['glm-4-flash', 'glm-4-air', 'glm-3-turbo'],
-  'glm-free': ['glm-4', 'glm-4-plus'],
-  'gpt4free-enhanced': ['gpt-4', 'gpt-4o', 'claude-3', 'gemini-pro', 'llama-3', 'deepseek-v3'],
-  'free-gpt4-web': ['gpt-4', 'gpt-4o', 'gemini', 'claude', 'llama'],
+  // xiaoY233/Chat2API — multi-provider Chinese AI web session proxy
+  chat2api: [
+    'DeepSeek-V3.2', 'GLM-5', 'GLM-4.7', 'GLM-4.6V', 'GLM-4.6',
+    'kimi-k2.5', 'MiniMax-M2.5',
+    'Qwen3.5-Plus', 'Qwen3-Max', 'Qwen3-Flash', 'Qwen3-Coder', 'qwen-max-latest',
+  ],
+  // KoushikNavuluri/Claude-API — claude.ai web session proxy
+  'claude-free': ['claude-3-5-sonnet', 'claude-3-opus', 'claude-3-haiku', 'claude-2'],
+  // Amm1rr/WebAI-to-API — Google Gemini web session proxy
+  webai: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.0-pro'],
+  // justlovemaki/AIClient-2-API — multi-provider proxy
+  aiclient: ['Grok-3', 'Grok-4', 'claude-sonnet-4-5', 'gemini-3.0-pro', 'gemini-3.5-flash', 'Qwen3-Coder-Plus', 'Kimi-K2', 'MiniMax-M2'],
+  // wangshengithub/FREEGLM — Zhipu open.bigmodel.cn proxy
+  freeglm: ['glm-4-flash', 'glm-4-air', 'glm-4'],
+  // xiaoY233/GLM-Free-API — GLM alternative proxy
+  'glm-free': ['glm-4', 'glm-4-plus', 'glm-4-flash'],
+  // xiangsx/gpt4free-ts — gpt4free TypeScript server
+  'gpt4free-enhanced': [
+    'gpt-4', 'gpt-4-all', 'gpt-3.5-turbo',
+    'claude-1-100k', 'claude-2-100k',
+    'llama-2-70b', 'mixtral-8x7b', 'qwen-72b',
+  ],
+  // aledipa/Free-GPT4-WEB-API — Python Flask GPT-4 proxy
+  'free-gpt4-web': ['gpt-4', 'gpt-4o', 'deepseek-r1'],
   'glm-free-xiaoY': ['glm-4', 'glm-4-flash', 'glm-4-plus'],
 };
 

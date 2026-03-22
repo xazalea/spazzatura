@@ -179,6 +179,9 @@ async function runBackgroundAuth(
 
 // ── Main App Component ────────────────────────────────────────────────────────
 
+const SPIN_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+const ANIM_PERIOD = 8; // number of distinct animTick values
+
 export function App({ provider, model, globalOptions: _globalOptions }: AppProps): React.ReactElement {
   const { exit } = useApp();
 
@@ -201,6 +204,29 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
     { label: 'Background auth',         status: 'pending' },
   ]);
   const authRunning = useRef(false);
+
+  // ── Single root animation clock ───────────────────────────────────────────
+  // All child components receive animTick/spinChar instead of running their own
+  // setInterval timers. This prevents cascading re-renders that cause glitching.
+  const [animTick, setAnimTick] = useState(0);
+  const [spinTick, setSpinTick] = useState(0);
+  const [tickerPos, setTickerPos] = useState(0);
+
+  useEffect(() => {
+    // Slow tick for color cycling (500ms) — drives logo, sidebar, status bar
+    const slow = setInterval(() => setAnimTick(t => (t + 1) % ANIM_PERIOD), 500);
+    // Ticker scroll (120ms)
+    const ticker = setInterval(() => setTickerPos(p => p + 1), 120);
+    return () => { clearInterval(slow); clearInterval(ticker); };
+  }, []);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const fast = setInterval(() => setSpinTick(t => (t + 1) % SPIN_CHARS.length), 80);
+    return () => clearInterval(fast);
+  }, [streaming]);
+
+  const spinChar = SPIN_CHARS[spinTick] ?? '⠋';
 
   const termCols = process.stdout.columns ?? 80;
   const showSidebar = termCols > 110;
@@ -403,14 +429,14 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
     const allDone = bootEntries.every(e => e.status !== 'pending' && e.status !== 'running');
     return (
       <Box flexDirection="column" height={termRows} alignItems="center" justifyContent="center">
-        <BootScreen entries={bootEntries} done={allDone} />
+        <BootScreen entries={bootEntries} done={allDone} animTick={animTick} spinChar={spinChar} />
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column" height={termRows}>
-      <Header streaming={streaming} providerLabel={activeProvider} />
+      <Header streaming={streaming} providerLabel={activeProvider} animTick={animTick} tickerPos={tickerPos} spinChar={spinChar} />
 
       <Box flexDirection="row" flexGrow={1}>
         {showSidebar && (
@@ -420,6 +446,7 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
             activeModel={activeModel}
             activeProvider={activeProvider}
             messageCount={messages.filter(m => m.role !== 'error').length}
+            animTick={animTick}
           />
         )}
 
@@ -434,6 +461,7 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
                 ollamaEnabled={ollamaEnabled}
                 onToggleOllama={handleToggleOllama}
                 availableProviders={availableProviders}
+                animTick={animTick}
               />
             </Box>
           ) : (
@@ -443,7 +471,7 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
               input={input}
               onChangeInput={handleInputChange}
               onSend={handleSendSync}
-              {...(activeProvider !== undefined ? { provider: activeProvider } : {})}
+              spinChar={spinChar}
               {...(activeModel !== undefined ? { model: activeModel } : {})}
             />
           )}
@@ -457,6 +485,7 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
         {...(latency !== undefined ? { latency } : {})}
         layout={layout}
         messageCount={messages.filter(m => m.role !== 'error').length}
+        animTick={animTick}
       />
     </Box>
   );

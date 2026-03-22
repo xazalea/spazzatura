@@ -3,7 +3,7 @@
  * Triggered by typing "/" in the input field.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { getDefaultProviderConfig } from '@spazzatura/provider';
 import type { ExtendedProviderType } from '@spazzatura/provider';
@@ -22,6 +22,7 @@ export interface SettingsOverlayProps {
   readonly ollamaEnabled: boolean;
   readonly onToggleOllama: () => void;
   readonly availableProviders: AvailableProvider[];
+  readonly animTick: number;
 }
 
 type Category = 'models' | 'providers' | 'settings';
@@ -46,15 +47,11 @@ function buildModelList(providers: AvailableProvider[]): Array<{ provider: strin
   return out;
 }
 
-export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelectModel, ollamaEnabled, onToggleOllama, availableProviders }: SettingsOverlayProps): React.ReactElement {
+export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelectModel, ollamaEnabled, onToggleOllama, availableProviders, animTick }: SettingsOverlayProps): React.ReactElement {
   const [catIdx, setCatIdx] = useState(0);
   const [itemIdx, setItemIdx] = useState(0);
-  const [blink, setBlink] = useState(0);
 
-  useEffect(() => {
-    const t = setInterval(() => setBlink(i => (i + 1) % BLINK.length), 400);
-    return () => clearInterval(t);
-  }, []);
+  const blink = animTick % BLINK.length;
 
   const category = CATS[catIdx]!.id;
   const allModels = buildModelList(availableProviders);

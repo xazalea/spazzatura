@@ -1,65 +1,63 @@
 /**
- * Header — minimal animated ASCII wordmark + scrolling provider ticker.
+ * Header — ASCII art logo with slow color cycle. No individual timer.
+ * Receives animTick from the root App to avoid per-component intervals.
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 
-// Compact single-line wordmark built from block chars
-const WORDMARK = '  S P A Z Z A T U R A';
-const DIVIDER  = '  ' + '─'.repeat(56);
+// Adapted from user-provided logo — trimmed to ~70 chars wide
+const LOGO: string[] = [
+  '          ██  █                                        ',
+  '  ███    ██   █                                        ',
+  '  ██     ██  █                                         ',
+  '    ███ █████    ██                        ███          ',
+  '          ███   ███                       ███    ███   ',
+  '████████  ███  ███████  ████████  ████████████ ████ ██ ',
+  '███    █  ███  ████ ██  ██  ███   ████  ██  █ ▓██  ██ ',
+  '██     █   ██  ███  ██  ██  ██    ██   ███  █  ██  ██ ',
+  '██     █   ██  ██  ███  ██ ███    ██   ██      ██  ██ ',
+  '█     ██   ██  ██ ████ ████  ██   ██  ████     ████   ',
+  ' █   █     ██ ████  ██   █████    ████ ████    ████   ',
+];
 
-const TICKER_CONTENT =
-  'Claude  ·  GPT-4  ·  Qwen  ·  GLM  ·  MiniMax  ·  Gemini  ·  DeepSeek  ·  Kimi  ·  Free & Open  ·  ';
+const SLOGAN = '  good ai code for u';
 
-const COLORS = ['cyan', 'magenta', 'blue', 'white', 'cyan', 'magenta'] as const;
+const COLORS = ['cyan', 'white', 'blue', 'magenta', 'cyan', 'white'] as const;
 type C = (typeof COLORS)[number];
-const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+
+const TICKER =
+  'Claude · GPT-4 · Qwen · GLM · MiniMax · Gemini · DeepSeek · Kimi · Grok · free & open · ';
 
 export interface HeaderProps {
+  readonly animTick: number;   // root clock — 0..COLORS.length-1
+  readonly tickerPos: number;  // scrolling ticker position
   readonly streaming: boolean;
+  readonly spinChar: string;
   readonly providerLabel?: string;
 }
 
-export function Header({ streaming, providerLabel }: HeaderProps): React.ReactElement {
-  const [cIdx, setCIdx] = useState(0);
-  const [sIdx, setSIdx] = useState(0);
-  const [tick, setTick] = useState(0);
+export function Header({ animTick, tickerPos, streaming, spinChar, providerLabel }: HeaderProps): React.ReactElement {
+  const c: C = COLORS[animTick % COLORS.length] ?? 'cyan';
+  const c2: C = COLORS[(animTick + 2) % COLORS.length] ?? 'white';
 
-  useEffect(() => {
-    const t = setInterval(() => setCIdx(i => (i + 1) % COLORS.length), 400);
-    return () => clearInterval(t);
-  }, []);
+  const doubled = TICKER + TICKER;
+  const tickerSlice = doubled.slice(tickerPos % TICKER.length, (tickerPos % TICKER.length) + 62);
 
-  useEffect(() => {
-    if (!streaming) return;
-    const t = setInterval(() => setSIdx(i => (i + 1) % SPINNER.length), 80);
-    return () => clearInterval(t);
-  }, [streaming]);
-
-  useEffect(() => {
-    const t = setInterval(() => setTick(p => (p + 1) % TICKER_CONTENT.length), 110);
-    return () => clearInterval(t);
-  }, []);
-
-  const c: C = COLORS[cIdx] ?? 'cyan';
-  const c2: C = COLORS[(cIdx + 2) % COLORS.length] ?? 'magenta';
-
-  const doubled = TICKER_CONTENT + TICKER_CONTENT;
-  const tickerSlice = doubled.slice(tick, tick + 58);
-
-  const statusBadge = streaming
-    ? `  ${SPINNER[sIdx] ?? '⠋'}  generating`
-    : `  ●  ${providerLabel ?? 'ready'}`;
+  const badge = streaming
+    ? `${spinChar} thinking`
+    : `● ${(providerLabel ?? 'ready').slice(0, 16)}`;
 
   return (
-    <Box flexDirection="column" paddingX={1} borderStyle="single" borderColor="gray">
+    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+      {LOGO.map((line, i) => (
+        <Text key={i} color={c} bold={i >= 3}>{line}</Text>
+      ))}
       <Box justifyContent="space-between">
-        <Text color={c} bold>{WORDMARK}</Text>
-        <Text color={streaming ? 'yellow' : 'greenBright'} dimColor={!streaming}>{statusBadge}</Text>
+        <Text color={c2} bold>{SLOGAN}</Text>
+        <Text color={streaming ? 'yellow' : 'greenBright'}>{badge}</Text>
       </Box>
-      <Text color={c2} dimColor>{'  ' + tickerSlice}</Text>
-      <Text dimColor>{DIVIDER}</Text>
+      <Text dimColor>{'  ' + tickerSlice}</Text>
     </Box>
   );
 }

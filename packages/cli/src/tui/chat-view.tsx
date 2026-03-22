@@ -1,8 +1,8 @@
 /**
- * Chat panel — minimal, professional message bubbles with ASCII borders.
+ * Chat panel — clean message rendering. No internal timers (uses root animTick).
  */
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 import { Markdown } from './markdown.js';
@@ -14,55 +14,50 @@ export interface ChatViewProps {
   readonly input: string;
   readonly onChangeInput: (value: string) => void;
   readonly onSend: (text: string) => void;
-  readonly provider?: string;
   readonly model?: string;
+  readonly spinChar: string;
 }
 
-const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
-
-function Timestamp(): React.ReactElement {
+function Ts(): React.ReactElement {
   const d = new Date();
-  const t = [d.getHours(), d.getMinutes(), d.getSeconds()]
-    .map(n => String(n).padStart(2, '0')).join(':');
-  return <Text dimColor>{t}</Text>;
+  return <Text dimColor>{[d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':')}</Text>;
 }
-const TS = React.memo(Timestamp);
+const MemoTs = React.memo(Ts);
 
-function UserBubble({ m }: { m: Message }): React.ReactElement {
+function UserMsg({ m }: { m: Message }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
-      <Box>
-        <Text color="green" bold>{'▸ you  '}</Text>
-        <TS />
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <Box gap={1}>
+        <Text color="green" bold>▸ you</Text>
+        <MemoTs />
       </Box>
       <Box paddingLeft={2}>
-        <Text color="gray">{'│ '}</Text>
+        <Text color="gray">│ </Text>
         <Text wrap="wrap">{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-function AssistantBubble({ m, model }: { m: Message; model?: string }): React.ReactElement {
-  const tag = model ? model.slice(0, 18) : 'spaz';
+function AiMsg({ m, model }: { m: Message; model?: string }): React.ReactElement {
+  const tag = (model ?? 'spaz').slice(0, 20);
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
-      <Box>
-        <Text color="cyan" bold>{'◈ ' + tag + '  '}</Text>
-        <TS />
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <Box gap={1}>
+        <Text color="cyan" bold>{'◈ ' + tag}</Text>
+        <MemoTs />
       </Box>
       <Box paddingLeft={2} flexDirection="column">
-        <Text color="gray">{'│ '}</Text>
         <Markdown content={m.content} />
       </Box>
     </Box>
   );
 }
 
-function ErrorBubble({ m }: { m: Message }): React.ReactElement {
+function ErrMsg({ m }: { m: Message }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={2}>
-      <Text color="red" bold>{'✗ error'}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <Text color="red" bold>✗ error</Text>
       <Box paddingLeft={2}>
         <Text color="red" wrap="wrap">{m.content}</Text>
       </Box>
@@ -70,11 +65,9 @@ function ErrorBubble({ m }: { m: Message }): React.ReactElement {
   );
 }
 
-// Minimal animated welcome panel
 const WELCOME = [
   '  ┌──────────────────────────────────────────────┐',
-  '  │  S P A Z Z A T U R A                        │',
-  '  │  Free Frontier AI                           │',
+  '  │  good ai code for u                         │',
   '  ├──────────────────────────────────────────────┤',
   '  │  /           settings & model browser       │',
   '  │  @file.ts    inject file into message       │',
@@ -84,57 +77,46 @@ const WELCOME = [
   '  │  ^C          quit                           │',
   '  └──────────────────────────────────────────────┘',
 ];
+const WCOLS = ['cyan', 'gray', 'white', 'cyan'] as const;
+type WC = (typeof WCOLS)[number];
 
-const WCOLORS = ['cyan', 'white', 'gray', 'cyan'] as const;
-type WC = (typeof WCOLORS)[number];
-
-function WelcomeScreen(): React.ReactElement {
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setIdx(i => (i + 1) % WCOLORS.length), 1200);
-    return () => clearInterval(t);
-  }, []);
-  const c: WC = WCOLORS[idx] ?? 'cyan';
+function Welcome({ animTick }: { animTick: number }): React.ReactElement {
+  const c: WC = WCOLS[Math.floor(animTick / 2) % WCOLS.length] ?? 'cyan';
   return (
     <Box flexDirection="column" marginTop={1}>
       {WELCOME.map((line, i) => (
-        <Text key={i} color={i === 0 || i === WELCOME.length - 1 || i === 3 ? 'gray' : c}>{line}</Text>
+        <Text key={i} color={i === 0 || i === WELCOME.length - 1 || i === 2 ? 'gray' : c}>{line}</Text>
       ))}
     </Box>
   );
 }
 
-export function ChatView({ messages, streaming, input, onChangeInput, onSend, model }: ChatViewProps): React.ReactElement {
-  const [spinIdx, setSpinIdx] = useState(0);
-  useEffect(() => {
-    if (!streaming) return;
-    const t = setInterval(() => setSpinIdx(i => (i + 1) % SPINNER.length), 80);
-    return () => clearInterval(t);
-  }, [streaming]);
-
+export function ChatView({ messages, streaming, input, onChangeInput, onSend, model, spinChar }: ChatViewProps): React.ReactElement {
   const termRows = process.stdout.rows ?? 24;
-  const visibleRows = Math.max(4, termRows - 14);
-  const visible = messages.slice(-Math.max(Math.floor(visibleRows / 5), 3));
+  const visible = messages.slice(-Math.max(Math.floor((termRows - 14) / 5), 3));
+
+  // animTick for welcome screen — derive from Date to avoid prop drilling
+  const animTick = Math.floor(Date.now() / 1000) % 8;
 
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Box flexDirection="column" flexGrow={1} paddingX={1} overflowY="hidden">
-        {messages.length === 0 && !streaming && <WelcomeScreen />}
+        {messages.length === 0 && !streaming && <Welcome animTick={animTick} />}
         {visible.map((m, i) => {
-          if (m.role === 'user')      return <UserBubble      key={`msg-${i}-${m.role}`} m={m} />;
-          if (m.role === 'error')     return <ErrorBubble     key={`msg-${i}-${m.role}`} m={m} />;
-          return                             <AssistantBubble key={`msg-${i}-${m.role}`} m={m} model={model} />;
+          if (m.role === 'user')  return <UserMsg key={`${i}-u`} m={m} />;
+          if (m.role === 'error') return <ErrMsg  key={`${i}-e`} m={m} />;
+          return                         <AiMsg   key={`${i}-a`} m={m} model={model} />;
         })}
         {streaming && (
-          <Box paddingLeft={4} marginBottom={1}>
-            <Text color="cyan">{(SPINNER[spinIdx] ?? '⠋') + '  thinking'}</Text>
-            <Text dimColor>{'...'}</Text>
+          <Box paddingLeft={3} marginBottom={1}>
+            <Text color="cyan">{spinChar + '  thinking'}</Text>
+            <Text dimColor>...</Text>
           </Box>
         )}
       </Box>
 
-      <Box borderStyle="single" borderColor="cyan" paddingX={1} marginX={1}>
-        <Text color="cyan" bold>{'❯ '}</Text>
+      <Box borderStyle="single" borderColor="gray" paddingX={1} marginX={1}>
+        <Text color="cyan" bold>❯ </Text>
         <TextInput value={input} onChange={onChangeInput} onSubmit={onSend} />
       </Box>
     </Box>
