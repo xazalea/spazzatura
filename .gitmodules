@@ -1,0 +1,15 @@
+[submodule "vendor/oh-my-openagent"]
+	path = vendor/oh-my-openagent
+	url = https://github.com/code-yeongyu/oh-my-openagent
+[submodule "vendor/codebuff"]
+	path = vendor/codebuff
+	url = https://github.com/CodebuffAI/codebuff
+[submodule "vendor/claude-code"]
+	path = vendor/claude-code
+	url = https://github.com/anthropics/claude-code
+[submodule "vendor/openspec"]
+	path = vendor/openspec
+	url = https://github.com/Fission-AI/OpenSpec
+[submodule "vendor/superpowers"]
+	path = vendor/superpowers
+	url = https://github.com/obra/superpowers

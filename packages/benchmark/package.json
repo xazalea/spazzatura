@@ -1,0 +1,34 @@
+{
+  "name": "@spazzatura/benchmark",
+  "version": "0.2.0",
+  "description": "Benchmark suite comparing Spazzatura vs Claude Code",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --outDir dist",
+    "dev": "tsup src/index.ts --format esm --dts --outDir dist --watch",
+    "clean": "rm -rf dist",
+    "benchmark": "node --experimental-vm-modules dist/runner.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@spazzatura/agent": "workspace:*",
+    "@spazzatura/core": "workspace:*",
+    "@spazzatura/provider": "workspace:*",
+    "execa": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}

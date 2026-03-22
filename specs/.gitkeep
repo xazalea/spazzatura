@@ -1,0 +1,17 @@
+# Example Specifications
+
+This directory contains example specifications for Spazzatura.
+
+## Specification Types
+
+- `features/` - Feature specifications
+- `api/` - API specifications
+- `architecture/` - Architecture specifications
+- `requirements/` - Requirements specifications
+
+## Format
+
+Specifications can be written in:
+- YAML (`.yaml` or `.yml`)
+- Markdown (`.md`)
+- JSON (`.json`)

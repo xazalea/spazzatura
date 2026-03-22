@@ -1,0 +1,14 @@
+# Examples
+
+This directory contains example configurations and skills for Spazzatura.
+
+## Contents
+
+- `configs/` - Example configuration files
+- `skills/` - Example skill definitions
+- `agents/` - Example agent configurations
+- `specs/` - Example specification files
+
+## Usage
+
+Copy example files to your project and customize as needed.

@@ -1,0 +1,11 @@
+# Built-in Skills
+
+This directory contains built-in skills for Spazzatura.
+
+## Available Skills
+
+- `code-review/` - Code review skill
+- `refactor/` - Code refactoring skill
+- `test-gen/` - Test generation skill
+- `doc-gen/` - Documentation generation skill
+- `debug/` - Debugging assistance skill

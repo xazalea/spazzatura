@@ -1,0 +1,10 @@
+# Built-in Templates
+
+This directory contains built-in templates for Spazzatura.
+
+## Template Categories
+
+- `code/` - Code generation templates
+- `docs/` - Documentation templates
+- `config/` - Configuration file templates
+- `project/` - Project scaffolding templates
