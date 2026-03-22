@@ -9,6 +9,8 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../ui/spinner.js';
+import { BUILTIN_SKILLS as SKILL_INSTANCES } from '@spazzatura/skill';
+import { randomUUID } from 'crypto';
 
 export const skillCommand = new Command('skill')
   .description('Skill management and execution')
@@ -91,131 +93,131 @@ interface CreateOptions {
   tools?: string;
 }
 
-/**
- * Built-in skills
- */
-const BUILTIN_SKILLS = [
-  {
-    name: 'code-review',
-    description: 'Comprehensive code review with multiple perspectives',
-    modes: ['default', 'security', 'performance', 'style'],
-    tools: ['file_read', 'git_diff', 'search_code'],
-    status: 'available',
-  },
-  {
-    name: 'test-generation',
-    description: 'Generate unit tests for code',
-    modes: ['default', 'coverage-focused', 'edge-cases'],
-    tools: ['file_read', 'file_write', 'execute_command'],
-    status: 'available',
-  },
-  {
-    name: 'refactoring',
-    description: 'Code refactoring and optimization',
-    modes: ['default', 'extract-method', 'simplify'],
-    tools: ['file_read', 'file_write', 'search_code'],
-    status: 'available',
-  },
-  {
-    name: 'documentation',
-    description: 'Generate documentation for code',
-    modes: ['default', 'api', 'readme'],
-    tools: ['file_read', 'file_write'],
-    status: 'available',
-  },
-  {
-    name: 'security-audit',
-    description: 'Security vulnerability analysis',
-    modes: ['default', 'owasp', 'dependencies'],
-    tools: ['file_read', 'search_code', 'execute_command'],
-    status: 'available',
-  },
+// Legacy static list merged with real skill instances
+const STATIC_SKILLS = [
+  { name: 'test-generation', description: 'Generate unit tests for code', modes: ['default', 'coverage-focused', 'edge-cases'], status: 'available' },
+  { name: 'refactoring', description: 'Code refactoring and optimization', modes: ['default', 'extract-method', 'simplify'], status: 'available' },
+  { name: 'documentation', description: 'Generate documentation for code', modes: ['default', 'api', 'readme'], status: 'available' },
+  { name: 'security-audit', description: 'Security vulnerability analysis', modes: ['default', 'owasp', 'dependencies'], status: 'available' },
 ];
 
 /**
  * List available skills
  */
 async function listSkills(options: { json?: boolean }): Promise<void> {
+  const real = SKILL_INSTANCES.map(s => ({
+    name: s.id,
+    description: s.config.description,
+    modes: [s.config.mode],
+    status: 'available',
+    category: s.config.category,
+  }));
+  const all = [...real, ...STATIC_SKILLS.map(s => ({ ...s, category: 'legacy' }))];
+
   if (options.json) {
-    output.json(BUILTIN_SKILLS);
+    output.json(all);
     return;
   }
 
   const table = new Table({
-    head: [chalk.cyan('Name'), chalk.cyan('Description'), chalk.cyan('Modes'), chalk.cyan('Status')],
-    colWidths: [18, 40, 25, 12],
+    head: [chalk.cyan('Name'), chalk.cyan('Description'), chalk.cyan('Category'), chalk.cyan('Status')],
+    colWidths: [22, 44, 12, 12],
   });
 
-  for (const skill of BUILTIN_SKILLS) {
+  for (const skill of all) {
     table.push([
       skill.name,
-      skill.description,
-      skill.modes.slice(0, 2).join(', ') + (skill.modes.length > 2 ? '...' : ''),
-      skill.status === 'available' ? chalk.green('✓ Available') : chalk.yellow('Busy'),
+      skill.description.slice(0, 42),
+      (skill as { category?: string }).category ?? '',
+      chalk.green('✓ Available'),
     ]);
   }
 
   output.info(table.toString());
   output.newline();
-  output.info(chalk.dim(`Total: ${BUILTIN_SKILLS.length} skills`));
+  output.info(chalk.dim(`Total: ${all.length} skills (${real.length} builtin from Superpowers)`));
 }
 
 /**
  * Execute a skill
  */
 async function runSkill(skill: string, options: RunOptions): Promise<void> {
-  const skillInfo = BUILTIN_SKILLS.find(s => s.name === skill);
-  
-  if (!skillInfo) {
-    output.error(`Skill "${skill}" not found. Use "skill list" to see available skills.`);
-    process.exit(1);
+  const skillInstance = SKILL_INSTANCES.find(s => s.id === skill);
+
+  if (!skillInstance) {
+    // Fall back to legacy static skills
+    const legacy = STATIC_SKILLS.find(s => s.name === skill);
+    if (!legacy) {
+      output.error(`Skill "${skill}" not found. Use "skill list" to see available skills.`);
+      process.exit(1);
+    }
+    output.info(chalk.cyan(`Running legacy skill: ${skill}`));
+    output.info(chalk.dim('(Legacy skill — no real execution yet)'));
+    return;
   }
 
-  let mode = options.mode;
-  
-  if (!mode) {
-    const answers = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'mode',
-        message: 'Select skill mode:',
-        choices: skillInfo.modes,
-        default: 'default',
-      },
-    ]);
-    mode = answers.mode;
+  // Prompt for required parameters
+  const parameters: Record<string, unknown> = {};
+  for (const param of skillInstance.config.parameters ?? []) {
+    if (param.required) {
+      const answers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: param.name,
+          message: `${param.name}: ${param.description}`,
+          default: String(param.default ?? ''),
+        },
+      ]);
+      parameters[param.name] = answers[param.name];
+    }
   }
 
-  let path = options.path;
-  
-  if (!path) {
-    const answers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'path',
-        message: 'Enter path to operate on:',
-        default: '.',
-      },
-    ]);
-    path = answers.path;
-  }
+  const path = options.path ?? process.cwd();
 
   output.info(chalk.cyan(`Running skill: ${skill}`));
-  output.info(chalk.dim(`Mode: ${mode}`));
-  output.info(chalk.dim(`Path: ${path}`));
+  output.info(chalk.dim(`Category: ${skillInstance.config.category}`));
   output.newline();
 
   const spinner = createSpinner('Executing skill...');
   spinner.start();
 
-  // TODO: Integrate with actual skill engine
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  let result;
+  try {
+    const consoleLogger = {
+      debug: (msg: string) => { /* silent */ void msg; },
+      info: (msg: string) => { /* silent */ void msg; },
+      warn: (msg: string) => console.warn(msg),
+      error: (msg: string) => console.error(msg),
+    };
+    result = await skillInstance.execute({
+      sessionId: randomUUID(),
+      workingDirectory: path,
+      parameters,
+      environment: process.env as Record<string, string>,
+      logger: consoleLogger,
+    });
+  } catch (e) {
+    spinner.stop();
+    output.error(`Skill execution failed: ${String(e)}`);
+    process.exit(1);
+  }
 
   spinner.stop();
-  
-  output.success(`Skill "${skill}" completed!`);
-  output.newline();
-  output.info(chalk.dim('Result: Skill integration will be implemented in a subsequent task.'));
+
+  if (result.success) {
+    output.success(`Skill "${skill}" completed in ${result.duration}ms`);
+    if (typeof result.output === 'string') {
+      output.newline();
+      console.log(result.output);
+    }
+    if (result.artifacts?.length) {
+      output.newline();
+      output.info(chalk.dim(`Artifacts: ${result.artifacts.map(a => a.name).join(', ')}`));
+    }
+  } else {
+    output.error(`Skill "${skill}" failed: ${result.error ?? 'unknown error'}`);
+    process.exit(1);
+  }
 }
 
 /**

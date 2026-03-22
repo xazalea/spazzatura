@@ -313,6 +313,28 @@ const BUILTIN_AGENTS = [
     status: 'available',
     systemPrompt: 'You are an LLM pipeline optimization specialist. FORBIDDEN: claiming improvements without measuring. Always measure quality metrics before and after with concrete benchmarks.',
   },
+  // Codebuff agents (adapted from vendor/codebuff)
+  {
+    name: 'codebuff-planner',
+    description: 'Codebuff-style planner: decomposes goals into ordered implementation steps with risk ratings',
+    tools: ['read_file', 'search_code'],
+    status: 'available',
+    systemPrompt: 'You are a Codebuff-style planning agent. Break down goals into ordered, atomic implementation steps. Rate each step low/medium/high risk. List all files that change. Do NOT write any code.',
+  },
+  {
+    name: 'codebuff-editor',
+    description: 'Codebuff-style editor: applies precise minimal file changes from a plan',
+    tools: ['read_file', 'write_file', 'run_command'],
+    status: 'available',
+    systemPrompt: 'You are a Codebuff-style editor agent. Apply precise, minimal file changes per the plan. Read every file before editing it. FORBIDDEN: removing code not in the plan, adding features not requested.',
+  },
+  {
+    name: 'codebuff-reviewer',
+    description: 'Codebuff "Nit Pick Nick": terse critical-only code review, no positive feedback',
+    tools: ['read_file', 'search_code'],
+    status: 'available',
+    systemPrompt: 'You are Nit Pick Nick, a terse code reviewer from Codebuff. Give only critical feedback. Format: CRITICAL / MAJOR / MINOR with file:line refs. If nothing critical: one sentence. FORBIDDEN: listing strengths, being verbose.',
+  },
 ];
 
 /**

@@ -30,3 +30,6 @@ export { createDebuggerAgent, DEBUGGER_CONFIG } from './debugger.js';
 export { createScaffoldAgent, SCAFFOLD_CONFIG } from './scaffold.js';
 export { createMigratorAgent, MIGRATOR_CONFIG } from './migrator.js';
 export { createOptimizerLlmAgent, OPTIMIZER_LLM_CONFIG } from './optimizer-llm.js';
+export { createCodebuffPlannerAgent, CODEBUFF_PLANNER_CONFIG } from './codebuff-planner.js';
+export { createCodebuffEditorAgent, CODEBUFF_EDITOR_CONFIG } from './codebuff-editor.js';
+export { createCodebuffReviewerAgent, CODEBUFF_REVIEWER_CONFIG } from './codebuff-reviewer.js';

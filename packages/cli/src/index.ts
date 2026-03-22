@@ -15,6 +15,8 @@ import { mcpCommand } from './commands/mcp.js';
 import { templateCommand } from './commands/template.js';
 import { configCommand } from './commands/config.js';
 import { providerCommand } from './commands/provider.js';
+import { initAuth } from './auth/index.js';
+import { registerCleanup } from './services/manager.js';
 
 // Version is injected at build time by tsup define — no runtime file reads needed
 declare const __SPAZ_VERSION__: string;
@@ -97,12 +99,79 @@ Documentation: https://github.com/spazzatura/spazzatura
   return program;
 }
 
+// Auth command — authenticate providers via automated browser flow
+function makeAuthCommand(): Command {
+  const cmd = new Command('auth');
+  cmd.description('Authenticate AI providers (automated browser login)');
+  cmd.argument('[service]', 'Specific service to authenticate (chatglm, claude, chatgpt, qwen, minimax)', 'all');
+  cmd.action(async (service: string) => {
+    const { runAllAuth, runSingleAuth } = await import('./auth/automator.js');
+    console.log('\n◈ Spazzatura Auth — setting up provider tokens...\n');
+
+    if (service === 'all') {
+      await runAllAuth((result) => {
+        const icon = result.success ? '✓' : '✗';
+        const msg = result.success ? 'authenticated' : ('failed: ' + (result.error ?? ''));
+        console.log(`  ${icon} ${result.service.padEnd(12)} — ${msg}`);
+      });
+    } else {
+      const result = await runSingleAuth(service);
+      const icon = result.success ? '✓' : '✗';
+      console.log(`  ${icon} ${result.service} — ${result.success ? 'authenticated' : result.error}`);
+    }
+    console.log('\nDone. Tokens stored at ~/.spazzatura/auth.json\n');
+  });
+  return cmd;
+}
+
+// Ultrawork command — Sisyphus orchestrator end-to-end
+function makeUltraworkCommand(): Command {
+  const cmd = new Command('ultrawork');
+  cmd.description('Run the Sisyphus orchestrator on a goal end-to-end (oh-my-openagent)');
+  cmd.argument('<goal>', 'The goal to accomplish');
+  cmd.option('--dry-run', 'Print the plan without executing');
+  cmd.action(async (goal: string, options: { dryRun?: boolean }) => {
+    const { createSisyphusAgent } = await import('@spazzatura/agent');
+    const chalk = (await import('chalk')).default;
+
+    console.log(chalk.cyan('\n◈ ULTRAWORK — Sisyphus Orchestrator\n'));
+    console.log(chalk.dim(`Goal: ${goal}\n`));
+
+    if (options.dryRun) {
+      console.log(chalk.yellow('Dry run — would spawn Sisyphus with the above goal.'));
+      return;
+    }
+
+    const agent = createSisyphusAgent();
+    console.log(chalk.dim('Starting agent...\n'));
+
+    try {
+      const result = await agent.run(goal);
+      console.log('\n' + chalk.green('✓ Ultrawork complete'));
+      if (result.output) {
+        console.log('\n' + String(result.output));
+      }
+    } catch (e) {
+      console.error(chalk.red('✗ Ultrawork failed: ') + String(e));
+      process.exit(1);
+    }
+  });
+  return cmd;
+}
+
 /**
  * Main entry point
  */
 export async function main(): Promise<void> {
+  // Load stored auth tokens into env
+  initAuth();
+  // Register process cleanup for services
+  registerCleanup();
+
   const program = createProgram();
-  
+  program.addCommand(makeAuthCommand());
+  program.addCommand(makeUltraworkCommand());
+
   try {
     await program.parseAsync(process.argv);
   } catch (error) {

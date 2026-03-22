@@ -13,3 +13,15 @@
 [submodule "vendor/superpowers"]
 	path = vendor/superpowers
 	url = https://github.com/obra/superpowers
+[submodule "vendor/minimax-free-api"]
+	path = vendor/minimax-free-api
+	url = https://github.com/LLM-Red-Team/minimax-free-api
+[submodule "vendor/chat2api"]
+	path = vendor/chat2api
+	url = https://github.com/xiaoY233/Chat2API
+[submodule "vendor/qwen-free-api"]
+	path = vendor/qwen-free-api
+	url = https://github.com/LLM-Red-Team/qwen-free-api
+[submodule "vendor/glm-free-api"]
+	path = vendor/glm-free-api
+	url = https://github.com/LLM-Red-Team/glm-free-api

@@ -80,21 +80,21 @@ const ENV_MAPPINGS: Record<string, Record<string, string>> = {
  * Default base URLs for providers
  */
 const DEFAULT_BASE_URLS: Record<ExtendedProviderType, string> = {
-  minimax: 'http://localhost:8000',
-  qwen: 'http://localhost:8001',
+  minimax: 'http://localhost:3047',    // minimax-free-api submodule
+  qwen: 'http://localhost:3045',       // qwen-free-api submodule
   gpt4free: 'http://localhost:8080',
-  glm: 'http://localhost:8002',
+  glm: 'http://localhost:3046',        // glm-free-api submodule
   openai: 'https://api.openai.com',
   anthropic: 'https://api.anthropic.com',
   openrouter: 'https://openrouter.ai/api',
   ollama: 'http://localhost:11434',
   custom: '',
-  chat2api: 'http://localhost:8080',
+  chat2api: 'http://localhost:3040',
   'claude-free': 'https://claude.ai',
   webai: 'http://localhost:8000',
   aiclient: 'http://localhost:3000',
   freeglm: 'https://open.bigmodel.cn',
-  'glm-free': 'http://localhost:3001',
+  'glm-free': 'http://localhost:3046', // glm-free-api submodule
   'gpt4free-enhanced': 'http://localhost:3000',
 };
 
@@ -123,7 +123,7 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
     'qwen/qwen-2.5-72b-instruct',
     'mistralai/mistral-large',
   ],
-  ollama: ['llama3.2', 'mistral', 'codellama', 'deepseek-coder-v2', 'qwen2.5-coder'],
+  ollama: ['llama3.2:1b', 'llama3.2', 'mistral', 'codellama', 'deepseek-coder-v2', 'qwen2.5-coder'],
   custom: [],
   chat2api: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o', 'gpt-4o-mini'],
   'claude-free': ['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus'],
@@ -444,10 +444,10 @@ export function getDefaultCapabilities(type: ExtendedProviderType): ProviderCapa
  * Get default routing configuration
  */
 export function getDefaultRoutingConfig(): RoutingConfig {
-  // Priority: free providers first, then paid providers as fallback
+  // Priority: working providers first — ollama (local), then submodule services, then paid
   return {
     strategy: 'failover',
-    failoverOrder: ['gpt4free', 'chat2api', 'glm-free', 'claude-free', 'webai', 'aiclient', 'freeglm', 'gpt4free-enhanced', 'ollama', 'openrouter', 'qwen', 'minimax', 'glm', 'openai', 'anthropic'],
+    failoverOrder: ['ollama', 'qwen', 'glm', 'glm-free', 'minimax', 'freeglm', 'chat2api', 'gpt4free', 'gpt4free-enhanced', 'aiclient', 'webai', 'claude-free', 'openrouter', 'openai', 'anthropic'],
     featureBased: {
       tts: 'openai',
       stt: 'openai',

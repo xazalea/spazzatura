@@ -47,6 +47,7 @@
     "marked": "^12.0.0",
     "marked-terminal": "^7.0.0",
     "ora": "^8.0.0",
+    "playwright": "^1.48.0",
     "react": "^19.2.4"
   },
   "devDependencies": {
