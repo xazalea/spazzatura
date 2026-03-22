@@ -1,4 +1,7 @@
 import { defineConfig } from 'tsup';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pkg = require('./package.json') as { version: string };
 
 export default defineConfig({
   entry: {
@@ -12,5 +15,8 @@ export default defineConfig({
   shims: true,
   banner: {
     js: '#!/usr/bin/env node',
+  },
+  define: {
+    '__SPAZ_VERSION__': JSON.stringify(pkg.version),
   },
 });

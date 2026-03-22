@@ -4,9 +4,6 @@
  */
 
 import { Command } from 'commander';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { startREPL } from './repl.js';
 export { startREPL } from './repl.js';
 import { startTUI } from './tui/index.js';
@@ -19,13 +16,9 @@ import { templateCommand } from './commands/template.js';
 import { configCommand } from './commands/config.js';
 import { providerCommand } from './commands/provider.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Read version from package.json
-const pkgPath = join(__dirname, '..', 'package.json');
-const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-const VERSION = pkg.version;
+// Version is injected at build time by tsup define — no runtime file reads needed
+declare const __SPAZ_VERSION__: string;
+const VERSION = (typeof __SPAZ_VERSION__ !== 'undefined' ? __SPAZ_VERSION__ : '0.2.0');
 
 /**
  * Global options interface
@@ -121,10 +114,8 @@ export async function main(): Promise<void> {
 // Export version
 export { VERSION };
 
-// Run main if this is the entry point
-if (process.argv[1] === __filename || process.argv[1]?.endsWith('/cli.js')) {
-  main().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
+// Always run main — this file is always the CLI entry point
+main().catch((error) => {
+  console.error('Fatal error:', error);
+  process.exit(1);
+});
