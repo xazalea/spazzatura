@@ -20,10 +20,13 @@ export interface ServiceDef {
   buildCmd?: string;
   startCmd: string;
   healthPath?: string;
+  /** 'node' (default) or 'python' — changes install/build strategy */
+  runtime?: 'node' | 'python';
 }
 
 /** All configured AI proxy services */
 export const SERVICES: ServiceDef[] = [
+  // LLM-Red-Team services — OpenAI-compatible, need auth tokens injected via env
   {
     name: 'qwen-free-api',
     dir: join(VENDOR_DIR, 'qwen-free-api'),
@@ -48,6 +51,51 @@ export const SERVICES: ServiceDef[] = [
     startCmd: 'node dist/index.js',
     healthPath: '/v1/models',
   },
+  // FreeGLM — proxy to open.bigmodel.cn
+  {
+    name: 'freeglm',
+    dir: join(VENDOR_DIR, 'freeglm'),
+    port: 33333,
+    startCmd: 'node server.js',
+    healthPath: '/',
+  },
+  // AIClient-2-API — multi-service OpenAI-compatible proxy (port 3048)
+  {
+    name: 'aiclient-api',
+    dir: join(VENDOR_DIR, 'aiclient-api'),
+    port: 3048,
+    buildCmd: 'npm run build',
+    startCmd: 'node dist/index.js',
+    healthPath: '/v1/models',
+  },
+  // GLM-Free-API (xiaoY) — GLM web session proxy (port 3049)
+  {
+    name: 'glm-free-xiaoY',
+    dir: join(VENDOR_DIR, 'glm-free-xiaoY'),
+    port: 3049,
+    buildCmd: 'npm run build',
+    startCmd: 'node dist/index.js',
+    healthPath: '/v1/models',
+  },
+  // gpt4free-ts — TypeScript gpt4free server (port 3051)
+  {
+    name: 'gpt4free-ts',
+    dir: join(VENDOR_DIR, 'gpt4free-ts'),
+    port: 3051,
+    buildCmd: 'npm run build',
+    startCmd: 'node dist/index.js',
+    healthPath: '/v1/models',
+  },
+  // Free-GPT4-WEB-API — Python Flask proxy for GPT-4 (port 3050)
+  {
+    name: 'free-gpt4-web',
+    dir: join(VENDOR_DIR, 'free-gpt4-web'),
+    port: 3050,
+    buildCmd: 'pip install -r requirements.txt -q',
+    startCmd: 'python FreeGPT4.py',
+    healthPath: '/',
+    runtime: 'python',
+  },
 ];
 
 const runningProcesses = new Map<string, ChildProcess>();
@@ -57,10 +105,13 @@ function ensureLogsDir(): void {
 }
 
 function serviceExists(svc: ServiceDef): boolean {
-  return existsSync(svc.dir) && existsSync(join(svc.dir, 'package.json'));
+  if (!existsSync(svc.dir)) return false;
+  if (svc.runtime === 'python') return existsSync(join(svc.dir, 'requirements.txt')) || existsSync(join(svc.dir, 'setup.py'));
+  return existsSync(join(svc.dir, 'package.json'));
 }
 
 function isBuilt(svc: ServiceDef): boolean {
+  if (svc.runtime === 'python') return true; // Python: no build step needed
   return existsSync(join(svc.dir, 'dist', 'index.js'));
 }
 
@@ -78,7 +129,7 @@ function configurePort(svc: ServiceDef): void {
 }
 
 async function buildService(svc: ServiceDef): Promise<boolean> {
-  if (!svc.buildCmd) return true;
+  if (!svc.buildCmd || svc.runtime === 'python') return true;
   if (isBuilt(svc)) return true;
 
   return new Promise(resolve => {
@@ -121,8 +172,22 @@ export async function startService(svc: ServiceDef): Promise<StartResult> {
 
   configurePort(svc);
 
-  // Install deps if node_modules missing
-  if (!existsSync(join(svc.dir, 'node_modules'))) {
+  // Install deps
+  if (svc.runtime === 'python') {
+    // Python: install requirements if not done (check for venv or site-packages marker)
+    if (!existsSync(join(svc.dir, '.deps-installed')) && existsSync(join(svc.dir, 'requirements.txt'))) {
+      await new Promise<void>(resolve => {
+        const proc = spawn('pip', ['install', '-r', 'requirements.txt', '-q'], {
+          cwd: svc.dir, stdio: 'ignore', shell: true,
+        });
+        proc.on('close', () => {
+          try { writeFileSync(join(svc.dir, '.deps-installed'), '1'); } catch { /* ignore */ }
+          resolve();
+        });
+        proc.on('error', () => resolve());
+      });
+    }
+  } else if (!existsSync(join(svc.dir, 'node_modules'))) {
     await new Promise<void>(resolve => {
       const proc = spawn('npm', ['install', '--prefer-offline'], {
         cwd: svc.dir,

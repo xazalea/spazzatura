@@ -89,13 +89,15 @@ const DEFAULT_BASE_URLS: Record<ExtendedProviderType, string> = {
   openrouter: 'https://openrouter.ai/api',
   ollama: 'http://localhost:11434',
   custom: '',
-  chat2api: 'http://localhost:3040',
+  chat2api: 'http://localhost:3040',     // vendor/chat2api (Electron app, optional)
   'claude-free': 'https://claude.ai',
-  webai: 'http://localhost:8000',
-  aiclient: 'http://localhost:3000',
-  freeglm: 'https://open.bigmodel.cn',
-  'glm-free': 'http://localhost:3046', // glm-free-api submodule
-  'gpt4free-enhanced': 'http://localhost:3000',
+  webai: 'http://localhost:8001',        // vendor/webai-api (Python, Gemini)
+  aiclient: 'http://localhost:3048',     // vendor/aiclient-api (Node.js)
+  freeglm: 'http://localhost:33333',     // vendor/freeglm (Express proxy)
+  'glm-free': 'http://localhost:3046',   // glm-free-api (LLM-Red-Team) submodule
+  'gpt4free-enhanced': 'http://localhost:3051', // vendor/gpt4free-ts
+  'free-gpt4-web': 'http://localhost:3050',     // vendor/free-gpt4-web (Python Flask)
+  'glm-free-xiaoY': 'http://localhost:3049',    // vendor/glm-free-xiaoY
 };
 
 /**
@@ -125,13 +127,15 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
   ],
   ollama: ['llama3.2:1b', 'llama3.2', 'mistral', 'codellama', 'deepseek-coder-v2', 'qwen2.5-coder'],
   custom: [],
-  chat2api: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o', 'gpt-4o-mini'],
-  'claude-free': ['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus'],
-  webai: ['gpt-3.5-turbo', 'gpt-4', 'claude'],
-  aiclient: ['gpt-3.5-turbo', 'gpt-4', 'claude-3-sonnet', 'gemini-pro'],
+  chat2api: ['deepseek-v3', 'glm-4', 'kimi-latest', 'minimax-text-01', 'qwen-max', 'z-ai'],
+  'claude-free': ['claude-3-haiku', 'claude-3-sonnet', 'claude-3-opus', 'claude-3-5-sonnet'],
+  webai: ['gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+  aiclient: ['gpt-4o', 'claude-3-5-sonnet', 'gemini-pro', 'deepseek-v3'],
   freeglm: ['glm-4-flash', 'glm-4-air', 'glm-3-turbo'],
   'glm-free': ['glm-4', 'glm-4-plus'],
-  'gpt4free-enhanced': ['gpt-4', 'gpt-4o', 'claude-3', 'gemini-pro', 'llama-3'],
+  'gpt4free-enhanced': ['gpt-4', 'gpt-4o', 'claude-3', 'gemini-pro', 'llama-3', 'deepseek-v3'],
+  'free-gpt4-web': ['gpt-4', 'gpt-4o', 'gemini', 'claude', 'llama'],
+  'glm-free-xiaoY': ['glm-4', 'glm-4-flash', 'glm-4-plus'],
 };
 
 /**
@@ -314,6 +318,28 @@ const DEFAULT_CAPABILITIES: Record<ExtendedProviderType, ProviderCapabilities> =
     functionCalling: false,
     maxContextLength: 32000,
   },
+  'free-gpt4-web': {
+    chat: true,
+    streaming: true,
+    vision: false,
+    tts: false,
+    stt: false,
+    imageGeneration: false,
+    embedding: false,
+    functionCalling: false,
+    maxContextLength: 32000,
+  },
+  'glm-free-xiaoY': {
+    chat: true,
+    streaming: true,
+    vision: false,
+    tts: false,
+    stt: false,
+    imageGeneration: false,
+    embedding: false,
+    functionCalling: false,
+    maxContextLength: 32000,
+  },
 };
 
 /**
@@ -447,7 +473,7 @@ export function getDefaultRoutingConfig(): RoutingConfig {
   // Priority: working providers first — ollama (local), then submodule services, then paid
   return {
     strategy: 'failover',
-    failoverOrder: ['ollama', 'qwen', 'glm', 'glm-free', 'minimax', 'freeglm', 'chat2api', 'gpt4free', 'gpt4free-enhanced', 'aiclient', 'webai', 'claude-free', 'openrouter', 'openai', 'anthropic'],
+    failoverOrder: ['qwen', 'glm', 'glm-free', 'glm-free-xiaoY', 'minimax', 'freeglm', 'chat2api', 'gpt4free', 'gpt4free-enhanced', 'free-gpt4-web', 'aiclient', 'webai', 'claude-free', 'openrouter', 'openai', 'anthropic'],
     featureBased: {
       tts: 'openai',
       stt: 'openai',

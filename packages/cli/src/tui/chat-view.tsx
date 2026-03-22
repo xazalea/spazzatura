@@ -111,20 +111,22 @@ function StreamingRow({ spinIdx }: { readonly spinIdx: number }): React.ReactEle
 
 // Welcome art shown when no messages
 const WELCOME_LINES = [
-  '  ┌─────────────────────────────────────────────────────┐',
-  '  │                                                     │',
-  '  │   ◈  Welcome to Spazzatura                         │',
-  '  │                                                     │',
-  '  │   Free frontier AI at your fingertips.             │',
-  '  │                                                     │',
-  '  │   Type a message to begin. Press [?] for help.     │',
-  '  │                                                     │',
-  '  │   @file.ts   — inject file context                 │',
-  '  │   /run ls    — execute shell commands              │',
-  '  │   /clear     — reset conversation                  │',
-  '  │   /save      — save conversation                   │',
-  '  │                                                     │',
-  '  └─────────────────────────────────────────────────────┘',
+  '  ╔═════════════════════════════════════════════════════╗',
+  '  ║                                                     ║',
+  '  ║   ◈  S P A Z Z A T U R A                          ║',
+  '  ║      Free Frontier AI at your fingertips           ║',
+  '  ║                                                     ║',
+  '  ╠═════════════════════════════════════════════════════╣',
+  '  ║                                                     ║',
+  '  ║   [/]          open settings & model browser        ║',
+  '  ║   [@file.ts]   inject file context into message     ║',
+  '  ║   [/run ls]    execute shell commands               ║',
+  '  ║   [/save]      save conversation to disk            ║',
+  '  ║   [/load name] load saved conversation              ║',
+  '  ║   [^R]         reset conversation                   ║',
+  '  ║   [^C]         quit                                 ║',
+  '  ║                                                     ║',
+  '  ╚═════════════════════════════════════════════════════╝',
 ];
 
 function WelcomeScreen(): React.ReactElement {

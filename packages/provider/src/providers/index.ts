@@ -199,18 +199,21 @@ export function detectAvailableProviders(): Array<{ type: ExtendedProviderType; 
     },
     {
       type: 'minimax',
+      // Free via minimax-free-api proxy (port 3047) — needs MINIMAX_COOKIE after `spaz auth minimax`
       configured: !!(process.env['MINIMAX_API_KEY'] || process.env['MINIMAX_COOKIE']),
-      free: false,
+      free: true,
     },
     {
       type: 'qwen',
+      // Free via qwen-free-api proxy (port 3045) — needs QWEN_COOKIE after `spaz auth qwen`
       configured: !!(process.env['QWEN_API_KEY'] || process.env['QWEN_COOKIE']),
-      free: false,
+      free: true,
     },
     {
       type: 'glm',
-      configured: !!(process.env['GLM_API_KEY'] || process.env['GLM_COOKIE']),
-      free: false,
+      // Free via glm-free-api proxy (port 3046) — needs GLM_COOKIE after `spaz auth chatglm`
+      configured: !!(process.env['GLM_API_KEY'] || process.env['GLM_COOKIE'] || process.env['GLM_FREE_COOKIE']),
+      free: true,
     },
     {
       type: 'chat2api',
@@ -244,7 +247,17 @@ export function detectAvailableProviders(): Array<{ type: ExtendedProviderType; 
     },
     {
       type: 'gpt4free-enhanced',
-      configured: true, // No key needed
+      configured: true,
+      free: true,
+    },
+    {
+      type: 'free-gpt4-web',
+      configured: true, // vendor/free-gpt4-web Python Flask service
+      free: true,
+    },
+    {
+      type: 'glm-free-xiaoY',
+      configured: !!(process.env['GLM_FREE_COOKIE'] || process.env['GLM_XIAOYI_COOKIE']),
       free: true,
     },
   ];

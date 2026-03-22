@@ -41,8 +41,8 @@ export function StatusBar({ provider, model, tokens, latency, messageCount }: St
         )}
       </Box>
       <Box>
-        <Text color="gray">{'[?]'}</Text>
-        <Text dimColor>{'help  '}</Text>
+        <Text color="cyan">{'[/]'}</Text>
+        <Text dimColor>{'settings  '}</Text>
         <Text color="gray">{'[^C]'}</Text>
         <Text dimColor>{'quit'}</Text>
       </Box>

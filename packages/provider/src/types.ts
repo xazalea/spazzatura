@@ -36,7 +36,9 @@ export type ExtendedProviderType =
   | 'aiclient'
   | 'freeglm'
   | 'glm-free'
-  | 'gpt4free-enhanced';
+  | 'gpt4free-enhanced'
+  | 'free-gpt4-web'
+  | 'glm-free-xiaoY';
 
 /**
  * Content part for multimodal messages

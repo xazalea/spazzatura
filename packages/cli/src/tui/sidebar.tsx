@@ -1,34 +1,23 @@
 /**
- * Sidebar panel — provider health, token usage, active model.
+ * Sidebar panel — model browser, token usage, active model, session info.
  * Only rendered when terminal columns > 110.
  */
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 
-export interface ProviderStatus {
-  readonly name: string;
-  readonly online: boolean;
-  readonly model?: string;
+export interface ModelEntry {
+  readonly provider: string;
+  readonly model: string;
 }
 
 export interface SidebarProps {
-  readonly providers: ProviderStatus[];
+  readonly allModels: ModelEntry[];
   readonly tokens: number;
   readonly maxTokens?: number;
   readonly activeModel?: string;
   readonly activeProvider?: string;
   readonly messageCount: number;
-}
-
-function ProviderRow({ p }: { readonly p: ProviderStatus }): React.ReactElement {
-  return (
-    <Box>
-      <Text color={p.online ? 'greenBright' : 'red'}>{p.online ? '●' : '○'}</Text>
-      <Text> </Text>
-      <Text color={p.online ? 'white' : 'gray'}>{p.name.padEnd(10).slice(0, 10)}</Text>
-    </Box>
-  );
 }
 
 function TokenBar({ tokens, max }: { readonly tokens: number; readonly max: number }): React.ReactElement {
@@ -42,16 +31,16 @@ function TokenBar({ tokens, max }: { readonly tokens: number; readonly max: numb
   return (
     <Box flexDirection="column">
       <Text color={color}>{bar}</Text>
-      <Text dimColor>{String(tokens).padStart(5)} / {String(max)}</Text>
+      <Text dimColor>{String(tokens).padStart(5) + ' / ' + String(max)}</Text>
     </Box>
   );
 }
 
-// Animated pulse for the header labels
+// Animated pulse for section headers
 const PULSE_CHARS = ['◈', '◇', '◈', '◆'] as const;
 
 export function Sidebar({
-  providers,
+  allModels,
   tokens,
   maxTokens = 8192,
   activeModel,
@@ -67,30 +56,60 @@ export function Sidebar({
 
   const pulse = PULSE_CHARS[pulseIdx] ?? '◈';
 
+  // Show up to 10 models, prioritize active model at top if present
+  const activeIdx = allModels.findIndex(m => m.model === activeModel && m.provider === activeProvider);
+  let visibleModels: ModelEntry[];
+  if (activeIdx > 0) {
+    // Ensure active model is visible: start window around it
+    const windowStart = Math.max(0, activeIdx - 2);
+    visibleModels = allModels.slice(windowStart, windowStart + 10);
+  } else {
+    visibleModels = allModels.slice(0, 10);
+  }
+
   return (
-    <Box flexDirection="column" width={22} borderStyle="single" paddingX={1}>
-      {/* Provider section */}
-      <Text bold color="cyan">{pulse + ' PROVIDERS'}</Text>
-      <Text dimColor>{'─'.repeat(18)}</Text>
-      {providers.length === 0
-        ? <Text dimColor>  no services</Text>
-        : providers.map((p, i) => <ProviderRow key={'prov-' + i + '-' + p.name} p={p} />)
+    <Box flexDirection="column" width={24} borderStyle="single" paddingX={1}>
+      {/* Model browser */}
+      <Text bold color="cyan">{pulse + ' MODELS'}</Text>
+      <Text dimColor>{'─'.repeat(20)}</Text>
+      {visibleModels.length === 0
+        ? <Text dimColor>  no models</Text>
+        : visibleModels.map((m, i) => {
+            const isActive = m.model === activeModel && m.provider === activeProvider;
+            const name = m.model.slice(0, 18);
+            return (
+              <Box key={'model-' + i + '-' + m.provider + '-' + m.model}>
+                <Text color={isActive ? 'greenBright' : 'transparent'}>{isActive ? '●' : ' '}</Text>
+                <Text> </Text>
+                <Text
+                  color={isActive ? 'greenBright' : 'gray'}
+                  bold={isActive}
+                  wrap="truncate"
+                >
+                  {name}
+                </Text>
+              </Box>
+            );
+          })
       }
+      {allModels.length > 10 && (
+        <Text dimColor>{'  +' + String(allModels.length - 10) + ' more [/]'}</Text>
+      )}
 
       {/* Spacer */}
       <Text>{' '}</Text>
 
       {/* Token usage */}
       <Text bold color="cyan">{pulse + ' TOKENS'}</Text>
-      <Text dimColor>{'─'.repeat(18)}</Text>
+      <Text dimColor>{'─'.repeat(20)}</Text>
       <TokenBar tokens={tokens} max={maxTokens} />
 
       {/* Spacer */}
       <Text>{' '}</Text>
 
       {/* Active model */}
-      <Text bold color="cyan">{pulse + ' MODEL'}</Text>
-      <Text dimColor>{'─'.repeat(18)}</Text>
+      <Text bold color="cyan">{pulse + ' ACTIVE'}</Text>
+      <Text dimColor>{'─'.repeat(20)}</Text>
       {activeModel
         ? <Text color="white" wrap="truncate">{activeModel}</Text>
         : <Text dimColor>auto</Text>
@@ -103,10 +122,11 @@ export function Sidebar({
       {/* Spacer */}
       <Text>{' '}</Text>
 
-      {/* Message count */}
+      {/* Session */}
       <Text bold color="cyan">{pulse + ' SESSION'}</Text>
-      <Text dimColor>{'─'.repeat(18)}</Text>
+      <Text dimColor>{'─'.repeat(20)}</Text>
       <Text color="white">{'↑' + String(messageCount) + ' msgs'}</Text>
+      <Text dimColor>{'[/] settings'}</Text>
     </Box>
   );
 }

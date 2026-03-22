@@ -1,6 +1,11 @@
 /**
- * Playwright-based automated auth for AI provider web services.
- * Logs in with provided credentials and extracts session tokens/cookies.
+ * Playwright-based automated auth with Eruda injection for AI provider web services.
+ *
+ * Uses a HEADED browser so users can complete CAPTCHAs manually while we:
+ *  - Inject Eruda DevTools for enhanced cookie/network visibility
+ *  - Poll for specific cookies/tokens after login
+ *  - Intercept network requests to capture auth tokens from API responses
+ *  - Fall back to user-guided extraction with clear instructions
  */
 
 import { setToken } from './token-store.js';
@@ -11,224 +16,393 @@ const AUTH_PASS = 'azaleacompute1!';
 export interface AuthResult {
   service: string;
   success: boolean;
+  token?: string;
   error?: string;
 }
 
-type Browser = {
+type BrowserContext = {
+  cookies(url?: string): Promise<Array<{ name: string; value: string; domain: string }>>;
   newPage(): Promise<Page>;
+  route(pattern: string | RegExp, handler: (route: Route, req: Request) => void): Promise<void>;
   close(): Promise<void>;
 };
+type Route = { continue(): Promise<void>; abort(): Promise<void> };
+type Request = { url(): string; headers(): Record<string, string>; postData(): string | null };
 type Page = {
   goto(url: string, opts?: Record<string, unknown>): Promise<unknown>;
   fill(selector: string, value: string): Promise<void>;
   click(selector: string): Promise<void>;
   waitForURL(pattern: string | RegExp, opts?: Record<string, unknown>): Promise<void>;
   waitForSelector(selector: string, opts?: Record<string, unknown>): Promise<unknown>;
-  waitForLoadState(state: string): Promise<void>;
-  evaluate<T>(fn: () => T): Promise<T>;
-  context(): {
-    cookies(): Promise<Array<{ name: string; value: string; domain: string }>>;
-  };
-  locator(selector: string): { fill(v: string): Promise<void>; click(): Promise<void> };
-  screenshot(opts: Record<string, unknown>): Promise<void>;
+  waitForLoadState(state: string, opts?: Record<string, unknown>): Promise<void>;
+  evaluate<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): Promise<T>;
+  addScriptTag(opts: Record<string, unknown>): Promise<unknown>;
+  context(): BrowserContext;
+  url(): string;
+  close(): Promise<void>;
+};
+type Browser = {
+  newContext(opts?: Record<string, unknown>): Promise<BrowserContext>;
   close(): Promise<void>;
 };
 
-async function launchBrowser(): Promise<Browser> {
-  // Dynamic import so playwright is optional at runtime
+async function launchBrowser(headless = false): Promise<Browser> {
   const { chromium } = await import('playwright') as unknown as {
     chromium: { launch(opts: Record<string, unknown>): Promise<Browser> }
   };
   return chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
+    headless,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-web-security',
+    ],
   });
 }
 
-async function getCookieValue(page: Page, names: string[]): Promise<string | undefined> {
-  const cookies = await page.context().cookies();
+/** Inject Eruda DevTools into the page for enhanced inspection */
+async function injectEruda(page: Page): Promise<void> {
+  try {
+    await page.addScriptTag({ url: 'https://cdn.jsdelivr.net/npm/eruda' });
+    await page.evaluate(() => {
+      try { (window as Record<string, unknown>)['eruda'] && ((window as Record<string, unknown>)['eruda'] as { init(): void }).init(); } catch { /* ignore */ }
+    });
+  } catch { /* CDN might fail in headless, ignore */ }
+}
+
+/**
+ * Get all cookies for a page, using both Playwright context and Eruda/JS fallback
+ */
+async function getAllCookies(page: Page): Promise<Array<{ name: string; value: string; domain: string }>> {
+  const playwrightCookies = await page.context().cookies().catch(() => []);
+
+  // Also try to read document.cookie via JS for completeness
+  try {
+    const jsCookies = await page.evaluate(() => {
+      return document.cookie.split(';').map(c => {
+        const [name, ...rest] = c.trim().split('=');
+        return { name: (name ?? '').trim(), value: rest.join('='), domain: window.location.hostname };
+      });
+    });
+    // Merge: playwright cookies are more reliable, but JS might get httpOnly=false extras
+    const allNames = new Set(playwrightCookies.map(c => c.name));
+    for (const c of jsCookies) {
+      if (c.name && !allNames.has(c.name)) playwrightCookies.push(c);
+    }
+  } catch { /* ignore */ }
+
+  return playwrightCookies;
+}
+
+function findCookie(cookies: Array<{ name: string; value: string }>, names: string[]): string | undefined {
   for (const name of names) {
     const c = cookies.find(c => c.name === name);
-    if (c?.value) return c.value;
+    if (c?.value && c.value.length > 10) return c.value;
   }
   return undefined;
 }
 
-/** Authenticate to Z.AI (ChatGLM) and extract refresh token */
-async function authChatGLM(browser: Browser): Promise<AuthResult> {
-  const page = await browser.newPage();
-  try {
-    await page.goto('https://chatglm.cn/', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+/** Poll for a cookie to appear within timeout, checking every 2s */
+async function pollForCookie(
+  page: Page,
+  names: string[],
+  timeoutMs = 60000,
+  onTick?: (remaining: number) => void,
+): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const cookies = await getAllCookies(page);
+    const found = findCookie(cookies, names);
+    if (found) return found;
+    onTick?.(Math.round((deadline - Date.now()) / 1000));
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return undefined;
+}
 
-    // Try to click login button
-    try {
-      await page.click('[data-testid="login-btn"], .login-btn, button:has-text("登录"), a:has-text("登录")', );
-      await page.waitForTimeout?.(2000);
-    } catch { /* might already be on login page */ }
-
-    // Try Google OAuth
-    try {
-      await page.click('button:has-text("Google"), [data-provider="google"], .google-login');
-      await page.waitForTimeout?.(3000);
-      // Google sign-in
-      await page.fill('input[type="email"]', AUTH_EMAIL);
-      await page.click('#identifierNext, button:has-text("Next")');
-      await page.waitForTimeout?.(2000);
-      await page.fill('input[type="password"]', AUTH_PASS);
-      await page.click('#passwordNext, button:has-text("Next")');
-      await page.waitForURL(/chatglm\.cn/, { timeout: 30000 });
-    } catch {
-      // Try email/phone login
-      try {
-        await page.fill('input[type="email"], input[placeholder*="邮箱"], input[placeholder*="email"]', AUTH_EMAIL);
-        await page.fill('input[type="password"], input[placeholder*="密码"]', AUTH_PASS);
-        await page.click('button[type="submit"], .submit-btn');
-        await page.waitForURL(/chatglm\.cn/, { timeout: 20000 });
-      } catch { /* ignore */ }
-    }
-
-    const token = await getCookieValue(page, ['chatglm_refresh_token', 'USER_TOKEN', 'token']);
-    const localToken = await page.evaluate(() => {
-      try { return localStorage.getItem('chatglm_refresh_token') ?? localStorage.getItem('token'); } catch { return null; }
-    });
-    const finalToken = token ?? localToken ?? undefined;
-
-    if (finalToken) {
-      setToken('chatglm', { token: finalToken, savedAt: Date.now() });
-      return { service: 'chatglm', success: true };
-    }
-    return { service: 'chatglm', success: false, error: 'Could not extract token' };
-  } catch (e) {
-    return { service: 'chatglm', success: false, error: String(e) };
-  } finally {
-    await page.close();
+/** Try auto-fill of email + password, ignoring failures */
+async function tryAutoLogin(page: Page, emailSelectors: string[], passSelectors: string[], submitSelectors: string[]): Promise<void> {
+  for (const sel of emailSelectors) {
+    try { await page.fill(sel, AUTH_EMAIL); break; } catch { /* try next */ }
+  }
+  for (const sel of passSelectors) {
+    try { await page.fill(sel, AUTH_PASS); break; } catch { /* try next */ }
+  }
+  for (const sel of submitSelectors) {
+    try { await page.click(sel); break; } catch { /* try next */ }
   }
 }
 
-/** Authenticate to Claude.ai */
-async function authClaude(browser: Browser): Promise<AuthResult> {
-  const page = await browser.newPage();
+// ──────────────────────────────────────────────────────────────
+// Service-specific auth flows
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Authenticate to Qwen/Tongyi (tongyi.aliyun.com)
+ * Needs: tongyi_sso_ticket OR login_aliyunid_ticket cookie
+ * Used by: qwen-free-api (port 3045)
+ */
+async function authQwen(browser: Browser, onProgress?: (msg: string) => void): Promise<AuthResult> {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  let capturedToken: string | undefined;
+
+  // Intercept API requests to catch the SSO token in request headers
+  await ctx.route('**/tongyi.aliyun.com/**', async (route, req) => {
+    const headers = req.headers();
+    const cookie = headers['cookie'] ?? '';
+    const match = cookie.match(/tongyi_sso_ticket=([^;]+)/);
+    if (match?.[1] && match[1].length > 10) capturedToken = match[1];
+    await route.continue();
+  });
+
   try {
-    await page.goto('https://claude.ai/login', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    onProgress?.('Opening Tongyi/Qwen login page...');
+    await page.goto('https://tongyi.aliyun.com/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await injectEruda(page);
 
-    // Try Google OAuth
-    try {
-      await page.click('button:has-text("Continue with Google"), [data-provider="google"]');
-      await page.waitForTimeout?.(3000);
-      await page.fill('input[type="email"]', AUTH_EMAIL);
-      await page.click('#identifierNext, button:has-text("Next")');
-      await page.waitForTimeout?.(2000);
-      await page.fill('input[type="password"]', AUTH_PASS);
-      await page.click('#passwordNext, button:has-text("Next")');
-      await page.waitForURL(/claude\.ai/, { timeout: 30000 });
-    } catch {
-      // Try email login
-      try {
-        await page.fill('input[name="email"], input[type="email"]', AUTH_EMAIL);
-        await page.click('button:has-text("Continue")');
-        await page.waitForTimeout?.(5000); // magic link delay
-      } catch { /* ignore */ }
-    }
+    // Try auto-login
+    await tryAutoLogin(
+      page,
+      ['input[type="email"]', 'input[placeholder*="邮箱"]', 'input[placeholder*="手机号"]'],
+      ['input[type="password"]', 'input[placeholder*="密码"]'],
+      ['button[type="submit"]', '.login-btn', 'button:has-text("登录")'],
+    );
 
-    const cookie = await getCookieValue(page, ['sessionKey', '__Secure-next-auth.session-token', 'CF_Authorization']);
-    if (cookie) {
-      setToken('claude', { cookie, savedAt: Date.now() });
-      return { service: 'claude', success: true };
-    }
-    return { service: 'claude', success: false, error: 'Could not extract session cookie' };
-  } catch (e) {
-    return { service: 'claude', success: false, error: String(e) };
-  } finally {
-    await page.close();
-  }
-}
+    onProgress?.('Waiting for login... (complete CAPTCHA in browser if shown, 60s timeout)');
+    const token = await pollForCookie(
+      page,
+      ['tongyi_sso_ticket', 'login_aliyunid_ticket', 'cna'],
+      60000,
+    ) ?? capturedToken;
 
-/** Authenticate to ChatGPT */
-async function authChatGPT(browser: Browser): Promise<AuthResult> {
-  const page = await browser.newPage();
-  try {
-    await page.goto('https://chat.openai.com/auth/login', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-
-    // Google OAuth
-    try {
-      await page.click('button:has-text("Continue with Google")');
-      await page.waitForTimeout?.(3000);
-      await page.fill('input[type="email"]', AUTH_EMAIL);
-      await page.click('#identifierNext, button:has-text("Next")');
-      await page.waitForTimeout?.(2000);
-      await page.fill('input[type="password"]', AUTH_PASS);
-      await page.click('#passwordNext, button:has-text("Next")');
-      await page.waitForURL(/chat\.openai\.com/, { timeout: 30000 });
-    } catch { /* ignore */ }
-
-    const token = await getCookieValue(page, ['__Secure-next-auth.session-token', 'next-auth.session-token']);
     if (token) {
-      setToken('chatgpt', { token, savedAt: Date.now() });
-      return { service: 'chatgpt', success: true };
+      setToken('qwen', { token, savedAt: Date.now() });
+      // Set env var immediately for services running now
+      process.env['QWEN_COOKIE'] = token;
+      onProgress?.(`✓ Got Qwen token: ${token.slice(0, 20)}...`);
+      return { service: 'qwen', success: true, token };
     }
-    return { service: 'chatgpt', success: false, error: 'Could not extract token' };
-  } catch (e) {
-    return { service: 'chatgpt', success: false, error: String(e) };
-  } finally {
-    await page.close();
-  }
-}
 
-/** Authenticate to Qwen (Tongyi) */
-async function authQwen(browser: Browser): Promise<AuthResult> {
-  const page = await browser.newPage();
-  try {
-    await page.goto('https://tongyi.aliyun.com/', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-
-    try {
-      await page.click('button:has-text("登录"), .login-btn');
-      await page.waitForTimeout?.(2000);
-      await page.fill('input[type="email"], input[placeholder*="邮箱"]', AUTH_EMAIL);
-      await page.click('button:has-text("下一步"), button[type="submit"]');
-      await page.waitForTimeout?.(1500);
-      await page.fill('input[type="password"]', AUTH_PASS);
-      await page.click('button[type="submit"]');
-      await page.waitForURL(/tongyi\.aliyun\.com/, { timeout: 20000 });
-    } catch { /* ignore */ }
-
-    const token = await getCookieValue(page, ['cna', 'login_aliyunid_ticket', 'JSESSIONID', '_sso_sec_']);
-    if (token) {
-      setToken('qwen', { cookie: token, savedAt: Date.now() });
-      return { service: 'qwen', success: true };
-    }
-    return { service: 'qwen', success: false, error: 'Could not extract cookie' };
+    return { service: 'qwen', success: false, error: 'Token not found after 60s. Try: spaz auth qwen' };
   } catch (e) {
     return { service: 'qwen', success: false, error: String(e) };
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
   }
 }
 
-/** Authenticate to MiniMax (Hailuo) */
-async function authMiniMax(browser: Browser): Promise<AuthResult> {
-  const page = await browser.newPage();
+/**
+ * Authenticate to ChatGLM/Z.AI (chatglm.cn)
+ * Needs: chatglm_refresh_token cookie
+ * Used by: glm-free-api (port 3046)
+ */
+async function authChatGLM(browser: Browser, onProgress?: (msg: string) => void): Promise<AuthResult> {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  let capturedToken: string | undefined;
+
+  // Intercept to catch token in API calls
+  await ctx.route('**/chatglm.cn/**', async (route, req) => {
+    const headers = req.headers();
+    const auth = headers['authorization'] ?? '';
+    if (auth.startsWith('Bearer ') && auth.length > 30) capturedToken = auth.slice(7);
+    const cookie = headers['cookie'] ?? '';
+    const match = cookie.match(/chatglm_refresh_token=([^;]+)/);
+    if (match?.[1] && match[1].length > 10) capturedToken = match[1];
+    await route.continue();
+  });
+
   try {
-    await page.goto('https://hailuoai.com/', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    onProgress?.('Opening ChatGLM/Z.AI login page...');
+    await page.goto('https://chatglm.cn/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await injectEruda(page);
 
-    try {
-      await page.click('button:has-text("登录"), .login-btn');
-      await page.waitForTimeout?.(2000);
-      await page.fill('input[type="email"]', AUTH_EMAIL);
-      await page.fill('input[type="password"]', AUTH_PASS);
-      await page.click('button[type="submit"]');
-      await page.waitForURL(/hailuoai\.com/, { timeout: 20000 });
-    } catch { /* ignore */ }
+    // Try clicking login button
+    try { await page.click('button:has-text("登录"), .login-btn, a:has-text("登录")'); } catch { /* ignore */ }
+    await new Promise(r => setTimeout(r, 1500));
 
-    const token = await getCookieValue(page, ['token', 'auth_token', 'userToken']);
+    // Try Google OAuth or email login
+    try { await page.click('button:has-text("Google"), [data-provider="google"]'); } catch { /* ignore */ }
+    await tryAutoLogin(
+      page,
+      ['input[type="email"]', 'input[placeholder*="邮箱"]'],
+      ['input[type="password"]', 'input[placeholder*="密码"]'],
+      ['button[type="submit"]', '.submit-btn'],
+    );
+
+    onProgress?.('Waiting for login... (complete CAPTCHA in browser if shown, 60s timeout)');
+    const token = await pollForCookie(
+      page,
+      ['chatglm_refresh_token', 'USER_TOKEN', 'token'],
+      60000,
+    ) ?? capturedToken ?? await page.evaluate(() => {
+      try { return localStorage.getItem('chatglm_refresh_token') ?? null; } catch { return null; }
+    }).catch(() => null) ?? undefined;
+
+    if (token) {
+      setToken('chatglm', { token, savedAt: Date.now() });
+      process.env['GLM_FREE_COOKIE'] = token;
+      onProgress?.(`✓ Got ChatGLM token: ${token.slice(0, 20)}...`);
+      return { service: 'chatglm', success: true, token };
+    }
+
+    return { service: 'chatglm', success: false, error: 'Token not found after 60s. Try: spaz auth chatglm' };
+  } catch (e) {
+    return { service: 'chatglm', success: false, error: String(e) };
+  } finally {
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Authenticate to MiniMax/Hailuo (hailuoai.com)
+ * Needs: user token from API response
+ * Used by: minimax-free-api (port 3047)
+ */
+async function authMiniMax(browser: Browser, onProgress?: (msg: string) => void): Promise<AuthResult> {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  let capturedToken: string | undefined;
+
+  // Intercept API responses to find the user token
+  await ctx.route('**/hailuoai.com/**', async (route, req) => {
+    const headers = req.headers();
+    const auth = headers['authorization'] ?? headers['token'] ?? '';
+    if (auth.length > 10) capturedToken = auth.replace(/^Bearer\s+/, '');
+    // Check cookies too
+    const cookie = headers['cookie'] ?? '';
+    const match = cookie.match(/(?:token|userToken|auth_token)=([^;]+)/);
+    if (match?.[1] && match[1].length > 10) capturedToken = match[1];
+    await route.continue();
+  });
+
+  try {
+    onProgress?.('Opening MiniMax/Hailuo login page...');
+    await page.goto('https://hailuoai.com/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await injectEruda(page);
+
+    try { await page.click('button:has-text("登录"), .login-btn'); } catch { /* ignore */ }
+    await tryAutoLogin(
+      page,
+      ['input[type="email"]', 'input[type="tel"]'],
+      ['input[type="password"]'],
+      ['button[type="submit"]'],
+    );
+
+    onProgress?.('Waiting for login... (60s timeout)');
+    const token = await pollForCookie(
+      page,
+      ['token', 'userToken', 'auth_token', 'minimax_token'],
+      60000,
+    ) ?? capturedToken ?? await page.evaluate(() => {
+      try {
+        return localStorage.getItem('token') ?? localStorage.getItem('userToken') ?? null;
+      } catch { return null; }
+    }).catch(() => null) ?? undefined;
+
     if (token) {
       setToken('minimax', { token, savedAt: Date.now() });
-      return { service: 'minimax', success: true };
+      process.env['MINIMAX_COOKIE'] = token;
+      onProgress?.(`✓ Got MiniMax token: ${token.slice(0, 20)}...`);
+      return { service: 'minimax', success: true, token };
     }
-    return { service: 'minimax', success: false, error: 'Could not extract token' };
+
+    return { service: 'minimax', success: false, error: 'Token not found after 60s. Try: spaz auth minimax' };
   } catch (e) {
     return { service: 'minimax', success: false, error: String(e) };
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Authenticate to Gemini (for WebAI-to-API / webai provider)
+ * Needs: __Secure-1PSID and __Secure-1PSIDTS cookies from google.com
+ */
+async function authGemini(browser: Browser, onProgress?: (msg: string) => void): Promise<AuthResult> {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+
+  try {
+    onProgress?.('Opening Google/Gemini login page...');
+    await page.goto('https://gemini.google.com/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await injectEruda(page);
+
+    // Try auto-login via Google
+    try { await page.click('a:has-text("Sign in"), button:has-text("Sign in")'); } catch { /* ignore */ }
+    await tryAutoLogin(
+      page,
+      ['input[type="email"]'],
+      ['input[type="password"]'],
+      ['#identifierNext', '#passwordNext', 'button:has-text("Next")'],
+    );
+
+    onProgress?.('Waiting for Gemini session cookies... (60s timeout)');
+    const psid = await pollForCookie(page, ['__Secure-1PSID'], 60000);
+    const psidts = (await getAllCookies(page)).find(c => c.name === '__Secure-1PSIDTS')?.value;
+
+    if (psid) {
+      const combined = `__Secure-1PSID=${psid}${psidts ? `;__Secure-1PSIDTS=${psidts}` : ''}`;
+      setToken('gemini', { cookie: combined, savedAt: Date.now() });
+      process.env['GEMINI_COOKIE'] = combined;
+      onProgress?.(`✓ Got Gemini cookie`);
+      return { service: 'gemini', success: true, token: combined };
+    }
+
+    return { service: 'gemini', success: false, error: 'Cookie not found after 60s. Try: spaz auth gemini' };
+  } catch (e) {
+    return { service: 'gemini', success: false, error: String(e) };
+  } finally {
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Authenticate to Claude.ai
+ * Needs: sessionKey cookie
+ */
+async function authClaude(browser: Browser, onProgress?: (msg: string) => void): Promise<AuthResult> {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+
+  try {
+    onProgress?.('Opening Claude.ai login page...');
+    await page.goto('https://claude.ai/login', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    await injectEruda(page);
+
+    try { await page.click('button:has-text("Continue with Google"), [data-provider="google"]'); } catch { /* ignore */ }
+    await tryAutoLogin(
+      page,
+      ['input[type="email"]', 'input[name="email"]'],
+      ['input[type="password"]'],
+      ['#identifierNext', '#passwordNext', 'button:has-text("Continue")'],
+    );
+
+    onProgress?.('Waiting for Claude.ai session... (60s timeout)');
+    const cookie = await pollForCookie(
+      page,
+      ['sessionKey', '__Secure-next-auth.session-token', 'CF_Authorization'],
+      60000,
+    );
+
+    if (cookie) {
+      setToken('claude', { cookie, savedAt: Date.now() });
+      process.env['CLAUDE_FREE_COOKIE'] = cookie;
+      return { service: 'claude', success: true, token: cookie };
+    }
+
+    return { service: 'claude', success: false, error: 'Session cookie not found after 60s' };
+  } catch (e) {
+    return { service: 'claude', success: false, error: String(e) };
+  } finally {
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
   }
 }
 
@@ -238,36 +412,46 @@ export interface AuthReport {
   failCount: number;
 }
 
+const SERVICE_FLOWS: Record<string, (browser: Browser, onProgress?: (msg: string) => void) => Promise<AuthResult>> = {
+  qwen: authQwen,
+  chatglm: authChatGLM,
+  minimax: authMiniMax,
+  gemini: authGemini,
+  claude: authClaude,
+};
+
 /**
- * Run all auth flows. Emits progress via callback.
+ * Run all auth flows with Eruda-enhanced headed browser.
+ * Opens browser windows for each service — user can complete CAPTCHAs.
  */
 export async function runAllAuth(
-  onProgress?: (result: AuthResult) => void
+  onProgress?: (result: AuthResult) => void,
+  services?: string[],
 ): Promise<AuthReport> {
   let browser: Browser | undefined;
   const results: AuthResult[] = [];
+  const toRun = services ?? Object.keys(SERVICE_FLOWS);
 
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser(false); // headed = true by default for CAPTCHA handling
 
-    const flows = [
-      { name: 'chatglm', fn: authChatGLM },
-      { name: 'claude', fn: authClaude },
-      { name: 'chatgpt', fn: authChatGPT },
-      { name: 'qwen', fn: authQwen },
-      { name: 'minimax', fn: authMiniMax },
-    ];
-
-    for (const { fn } of flows) {
-      const result = await fn(browser);
+    for (const service of toRun) {
+      const fn = SERVICE_FLOWS[service];
+      if (!fn) {
+        const r: AuthResult = { service, success: false, error: `Unknown service: ${service}` };
+        results.push(r);
+        onProgress?.(r);
+        continue;
+      }
+      const result = await fn(browser, msg => console.log(`  [${service}] ${msg}`));
       results.push(result);
       onProgress?.(result);
     }
   } catch (e) {
-    // Playwright not installed — graceful degradation
-    const errMsg = 'Playwright not available: ' + String(e) + '. Install with: npx playwright install chromium';
-    results.push({ service: 'all', success: false, error: errMsg });
-    onProgress?.({ service: 'all', success: false, error: errMsg });
+    const errMsg = 'Playwright not available: ' + String(e) + '\nInstall with: npx playwright install chromium';
+    const r: AuthResult = { service: 'all', success: false, error: errMsg };
+    results.push(r);
+    onProgress?.(r);
   } finally {
     try { await browser?.close(); } catch { /* ignore */ }
   }
@@ -283,15 +467,10 @@ export async function runAllAuth(
 export async function runSingleAuth(service: string): Promise<AuthResult> {
   let browser: Browser | undefined;
   try {
-    browser = await launchBrowser();
-    switch (service) {
-      case 'chatglm': return await authChatGLM(browser);
-      case 'claude': return await authClaude(browser);
-      case 'chatgpt': return await authChatGPT(browser);
-      case 'qwen': return await authQwen(browser);
-      case 'minimax': return await authMiniMax(browser);
-      default: return { service, success: false, error: `Unknown service: ${service}` };
-    }
+    browser = await launchBrowser(false);
+    const fn = SERVICE_FLOWS[service];
+    if (!fn) return { service, success: false, error: `Unknown service: ${service}. Valid: ${Object.keys(SERVICE_FLOWS).join(', ')}` };
+    return await fn(browser, msg => console.log(`  ${msg}`));
   } catch (e) {
     return { service, success: false, error: String(e) };
   } finally {

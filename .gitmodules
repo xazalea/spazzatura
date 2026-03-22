@@ -25,3 +25,24 @@
 [submodule "vendor/glm-free-api"]
 	path = vendor/glm-free-api
 	url = https://github.com/LLM-Red-Team/glm-free-api
+[submodule "vendor/gpt4free-ts"]
+	path = vendor/gpt4free-ts
+	url = https://github.com/xiangsx/gpt4free-ts
+[submodule "vendor/webai-api"]
+	path = vendor/webai-api
+	url = https://github.com/Amm1rr/WebAI-to-API
+[submodule "vendor/freeglm"]
+	path = vendor/freeglm
+	url = https://github.com/wangshengithub/FREEGLM
+[submodule "vendor/aiclient-api"]
+	path = vendor/aiclient-api
+	url = https://github.com/justlovemaki/AIClient-2-API
+[submodule "vendor/claude-api"]
+	path = vendor/claude-api
+	url = https://github.com/KoushikNavuluri/Claude-API
+[submodule "vendor/glm-free-xiaoY"]
+	path = vendor/glm-free-xiaoY
+	url = https://github.com/xiaoY233/GLM-Free-API
+[submodule "vendor/free-gpt4-web"]
+	path = vendor/free-gpt4-web
+	url = https://github.com/aledipa/Free-GPT4-WEB-API
