@@ -73,7 +73,7 @@ export const CLOUD_ARCHITECT_CONFIG: AgentConfig = {
 export function createCloudArchitectAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: CLOUD_ARCHITECT_CONFIG.name,
-    description: CLOUD_ARCHITECT_CONFIG.description,
+    ...(CLOUD_ARCHITECT_CONFIG.description !== undefined ? { description: CLOUD_ARCHITECT_CONFIG.description } : {}),
     systemPrompt: CLOUD_ARCHITECT_CONFIG.systemPrompt,
     ...(CLOUD_ARCHITECT_CONFIG.model !== undefined ? { model: CLOUD_ARCHITECT_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

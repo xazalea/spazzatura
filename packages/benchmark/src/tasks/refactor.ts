@@ -4,7 +4,7 @@
 
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import type { BenchmarkTask, BenchmarkResult } from './types.js';
+import type { BenchmarkTask, BenchmarkResult, CheckResult } from './types.js';
 import { runTsc } from '../checks.js';
 
 export const refactorTasks: BenchmarkTask[] = [
@@ -47,7 +47,7 @@ export const refactorTasks: BenchmarkTask[] = [
     },
 
     async verify(workDir: string, _output: string): Promise<BenchmarkResult> {
-      const checks = [];
+      const checks: CheckResult[] = [];
       const { existsSync } = await import('fs');
 
       const tscResult = await runTsc(workDir);

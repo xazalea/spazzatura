@@ -71,7 +71,7 @@ export const MIGRATOR_CONFIG: AgentConfig = {
 export function createMigratorAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: MIGRATOR_CONFIG.name,
-    description: MIGRATOR_CONFIG.description,
+    ...(MIGRATOR_CONFIG.description !== undefined ? { description: MIGRATOR_CONFIG.description } : {}),
     systemPrompt: MIGRATOR_CONFIG.systemPrompt,
     ...(MIGRATOR_CONFIG.model !== undefined ? { model: MIGRATOR_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

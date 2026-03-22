@@ -85,7 +85,7 @@ export const GIT_WORKFLOW_CONFIG: AgentConfig = {
 export function createGitWorkflowAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: GIT_WORKFLOW_CONFIG.name,
-    description: GIT_WORKFLOW_CONFIG.description,
+    ...(GIT_WORKFLOW_CONFIG.description !== undefined ? { description: GIT_WORKFLOW_CONFIG.description } : {}),
     systemPrompt: GIT_WORKFLOW_CONFIG.systemPrompt,
     ...(GIT_WORKFLOW_CONFIG.model !== undefined ? { model: GIT_WORKFLOW_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

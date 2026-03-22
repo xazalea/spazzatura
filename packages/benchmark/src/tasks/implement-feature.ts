@@ -5,8 +5,8 @@
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import type { BenchmarkTask, BenchmarkResult } from './types.js';
-import { runTsc, runEslint } from '../checks.js';
+import type { BenchmarkTask, BenchmarkResult, CheckResult } from './types.js';
+import { runTsc } from '../checks.js';
 
 export const implementFeatureTasks: BenchmarkTask[] = [
   {
@@ -42,11 +42,11 @@ export const implementFeatureTasks: BenchmarkTask[] = [
     },
 
     async verify(workDir: string, output: string): Promise<BenchmarkResult> {
-      const checks = [];
+      const checks: CheckResult[] = [];
 
       // Check 1: TypeScript compiles
       const tscResult = await runTsc(workDir);
-      checks.push({ name: 'TypeScript compiles', passed: tscResult.passed, detail: tscResult.detail });
+      checks.push({ name: 'TypeScript compiles', passed: tscResult.passed, ...(tscResult.detail !== undefined ? { detail: tscResult.detail } : {}) });
 
       // Check 2: Pagination params mentioned in output
       const hasPagination = output.includes('page') && output.includes('limit');
@@ -103,10 +103,10 @@ export const implementFeatureTasks: BenchmarkTask[] = [
     },
 
     async verify(workDir: string, output: string): Promise<BenchmarkResult> {
-      const checks = [];
+      const checks: CheckResult[] = [];
 
       const tscResult = await runTsc(workDir);
-      checks.push({ name: 'TypeScript compiles', passed: tscResult.passed, detail: tscResult.detail });
+      checks.push({ name: 'TypeScript compiles', passed: tscResult.passed, ...(tscResult.detail !== undefined ? { detail: tscResult.detail } : {}) });
 
       const hasJwt = output.toLowerCase().includes('jwt') || output.includes('jsonwebtoken') || output.includes('Bearer');
       checks.push({ name: 'Uses JWT', passed: hasJwt });

@@ -68,7 +68,7 @@ export const DEBUGGER_CONFIG: AgentConfig = {
 export function createDebuggerAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: DEBUGGER_CONFIG.name,
-    description: DEBUGGER_CONFIG.description,
+    ...(DEBUGGER_CONFIG.description !== undefined ? { description: DEBUGGER_CONFIG.description } : {}),
     systemPrompt: DEBUGGER_CONFIG.systemPrompt,
     ...(DEBUGGER_CONFIG.model !== undefined ? { model: DEBUGGER_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

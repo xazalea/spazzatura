@@ -74,7 +74,7 @@ export const SCAFFOLD_CONFIG: AgentConfig = {
 export function createScaffoldAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: SCAFFOLD_CONFIG.name,
-    description: SCAFFOLD_CONFIG.description,
+    ...(SCAFFOLD_CONFIG.description !== undefined ? { description: SCAFFOLD_CONFIG.description } : {}),
     systemPrompt: SCAFFOLD_CONFIG.systemPrompt,
     ...(SCAFFOLD_CONFIG.model !== undefined ? { model: SCAFFOLD_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

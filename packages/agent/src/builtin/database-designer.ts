@@ -43,7 +43,7 @@ export const DATABASE_DESIGNER_CONFIG = {
 export function createDatabaseDesignerAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: DATABASE_DESIGNER_CONFIG.name,
-    description: DATABASE_DESIGNER_CONFIG.description,
+    ...(DATABASE_DESIGNER_CONFIG.description !== undefined ? { description: DATABASE_DESIGNER_CONFIG.description } : {}),
     systemPrompt: DATABASE_DESIGNER_CONFIG.systemPrompt,
     model: DATABASE_DESIGNER_CONFIG.model,
     tools: tools ? [...tools] : [],

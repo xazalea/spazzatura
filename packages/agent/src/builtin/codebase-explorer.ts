@@ -78,7 +78,7 @@ export const CODEBASE_EXPLORER_CONFIG: AgentConfig = {
 export function createCodebaseExplorerAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: CODEBASE_EXPLORER_CONFIG.name,
-    description: CODEBASE_EXPLORER_CONFIG.description,
+    ...(CODEBASE_EXPLORER_CONFIG.description !== undefined ? { description: CODEBASE_EXPLORER_CONFIG.description } : {}),
     systemPrompt: CODEBASE_EXPLORER_CONFIG.systemPrompt,
     ...(CODEBASE_EXPLORER_CONFIG.model !== undefined ? { model: CODEBASE_EXPLORER_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

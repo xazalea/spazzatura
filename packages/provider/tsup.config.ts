@@ -7,4 +7,12 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   splitting: false,
+  // Playwright and its native deps must not be bundled — they are optional at runtime
+  external: [
+    'playwright',
+    'playwright-core',
+    'chromium-bidi',
+    'https-proxy-agent',
+    'socks-proxy-agent',
+  ],
 });

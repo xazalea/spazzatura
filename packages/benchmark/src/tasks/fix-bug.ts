@@ -4,7 +4,7 @@
 
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import type { BenchmarkTask, BenchmarkResult } from './types.js';
+import type { BenchmarkTask, BenchmarkResult, CheckResult } from './types.js';
 import { runTsc } from '../checks.js';
 
 export const fixBugTasks: BenchmarkTask[] = [
@@ -37,7 +37,7 @@ export const fixBugTasks: BenchmarkTask[] = [
     },
 
     async verify(workDir: string, output: string): Promise<BenchmarkResult> {
-      const checks = [];
+      const checks: CheckResult[] = [];
 
       const tscResult = await runTsc(workDir);
       checks.push({ name: 'TypeScript compiles', passed: tscResult.passed });
@@ -98,8 +98,8 @@ export const fixBugTasks: BenchmarkTask[] = [
       }, null, 2));
     },
 
-    async verify(workDir: string, output: string): Promise<BenchmarkResult> {
-      const checks = [];
+    async verify(workDir: string, _output: string): Promise<BenchmarkResult> {
+      const checks: CheckResult[] = [];
 
       const tscResult = await runTsc(workDir);
       checks.push({ name: 'TypeScript compiles', passed: tscResult.passed });

@@ -78,7 +78,7 @@ export const OPTIMIZER_LLM_CONFIG: AgentConfig = {
 export function createOptimizerLlmAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: OPTIMIZER_LLM_CONFIG.name,
-    description: OPTIMIZER_LLM_CONFIG.description,
+    ...(OPTIMIZER_LLM_CONFIG.description !== undefined ? { description: OPTIMIZER_LLM_CONFIG.description } : {}),
     systemPrompt: OPTIMIZER_LLM_CONFIG.systemPrompt,
     ...(OPTIMIZER_LLM_CONFIG.model !== undefined ? { model: OPTIMIZER_LLM_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

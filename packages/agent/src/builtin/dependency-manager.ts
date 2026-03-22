@@ -72,7 +72,7 @@ export const DEPENDENCY_MANAGER_CONFIG: AgentConfig = {
 export function createDependencyManagerAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: DEPENDENCY_MANAGER_CONFIG.name,
-    description: DEPENDENCY_MANAGER_CONFIG.description,
+    ...(DEPENDENCY_MANAGER_CONFIG.description !== undefined ? { description: DEPENDENCY_MANAGER_CONFIG.description } : {}),
     systemPrompt: DEPENDENCY_MANAGER_CONFIG.systemPrompt,
     ...(DEPENDENCY_MANAGER_CONFIG.model !== undefined ? { model: DEPENDENCY_MANAGER_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

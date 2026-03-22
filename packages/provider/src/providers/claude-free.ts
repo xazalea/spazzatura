@@ -168,7 +168,7 @@ export class ClaudeFreeProvider implements Provider {
     if (systemPrompt) {
       body['system_prompt'] = typeof systemPrompt.content === 'string'
         ? systemPrompt.content
-        : (systemPrompt.content as Array<{ text?: string }>).map(p => p.text ?? '').join('');
+        : (systemPrompt.content as unknown as Array<{ text?: string }>).map(p => p.text ?? '').join('');
     }
 
     const response = await fetch(

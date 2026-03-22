@@ -76,7 +76,7 @@ export const DEVOPS_AGENT_CONFIG: AgentConfig = {
 export function createDevopsAgentAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: DEVOPS_AGENT_CONFIG.name,
-    description: DEVOPS_AGENT_CONFIG.description,
+    ...(DEVOPS_AGENT_CONFIG.description !== undefined ? { description: DEVOPS_AGENT_CONFIG.description } : {}),
     systemPrompt: DEVOPS_AGENT_CONFIG.systemPrompt,
     ...(DEVOPS_AGENT_CONFIG.model !== undefined ? { model: DEVOPS_AGENT_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],

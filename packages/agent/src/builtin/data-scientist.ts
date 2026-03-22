@@ -79,7 +79,7 @@ export const DATA_SCIENTIST_CONFIG: AgentConfig = {
 export function createDataScientistAgent(tools?: readonly Tool[]): IAgent {
   return new Agent({
     name: DATA_SCIENTIST_CONFIG.name,
-    description: DATA_SCIENTIST_CONFIG.description,
+    ...(DATA_SCIENTIST_CONFIG.description !== undefined ? { description: DATA_SCIENTIST_CONFIG.description } : {}),
     systemPrompt: DATA_SCIENTIST_CONFIG.systemPrompt,
     ...(DATA_SCIENTIST_CONFIG.model !== undefined ? { model: DATA_SCIENTIST_CONFIG.model } : {}),
     tools: tools ? [...tools] : [],
