@@ -98,6 +98,7 @@ const DEFAULT_BASE_URLS: Record<ExtendedProviderType, string> = {
   'gpt4free-enhanced': 'http://localhost:3051', // vendor/gpt4free-ts
   'free-gpt4-web': 'http://localhost:3050',     // vendor/free-gpt4-web (Python Flask)
   'glm-free-xiaoY': 'http://localhost:3049',    // vendor/glm-free-xiaoY
+  gemini: 'https://gemini.google.com',
 };
 
 /**

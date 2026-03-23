@@ -41,10 +41,10 @@ export { GeminiProvider } from './gemini.js';
 export type { GeminiConfig } from './gemini.js';
 
 // Re-export types
-export type { MiniMaxConfig, MiniMaxVoice, TTSOptions, STTOptions } from './minimax.js';
-export type { QwenConfig, ImageGenerationOptions, ImageGenerationResponse } from './qwen.js';
+export type { MiniMaxConfig } from './minimax.js';
+export type { QwenConfig } from './qwen.js';
 export type { GPT4FreeConfig, SiteInfo } from './gpt4free.js';
-export type { GLMConfig, GLMImageOptions, GLMVideoOptions } from './glm.js';
+export type { GLMConfig } from './glm.js';
 export type { OpenAIConfig, OpenAIVoice, OpenAITTSOptions, OpenAISTTOptions, OpenAIImageOptions } from './openai.js';
 export type { AnthropicConfig } from './anthropic.js';
 export type { OpenRouterConfig } from './openrouter.js';

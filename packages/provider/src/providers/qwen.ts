@@ -12,6 +12,7 @@ import type {
   ProviderStatus,
   Message,
   ChatOptions,
+  ChatResponse,
   StreamChunk,
 } from '../types.js';
 
@@ -42,12 +43,24 @@ export class QwenProvider implements Provider {
   }
 
   getModels(): string[] {
-    return this.config.models ?? ['qwen-turbo', 'qwen-plus', 'qwen-max'];
+    return [...(this.config.models ?? ['qwen-turbo', 'qwen-plus', 'qwen-max'])];
+  }
+
+  async chat(messages: readonly Message[], options?: ChatOptions): Promise<ChatResponse> {
+    let content = '';
+    for await (const chunk of this.stream(messages, options)) {
+      if (!chunk.done) content += chunk.delta;
+    }
+    return { content, model: options?.model ?? this.config.defaultModel ?? 'qwen-turbo' };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return !!process.env['QWEN_COOKIE'];
   }
 
   async *stream(messages: readonly Message[], options?: ChatOptions): AsyncIterable<StreamChunk> {
-    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: m.content }));
-    const model = options?.model ?? this.config.defaultModel;
+    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: typeof m.content === 'string' ? m.content : '' }));
+    const model = options?.model ?? this.config.defaultModel ?? 'qwen-turbo';
     for await (const delta of this.native.stream(nativeMsgs, { model })) {
       yield { delta, done: false };
     }
@@ -59,9 +72,9 @@ export class QwenProvider implements Provider {
     return {
       name: this.name,
       available: configured,
-      error: configured ? undefined : 'QWEN_COOKIE not set',
       lastChecked: new Date(),
       models: this.getModels(),
+      ...(configured ? {} : { error: 'QWEN_COOKIE not set' }),
     };
   }
 }

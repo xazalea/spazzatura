@@ -12,6 +12,7 @@ import type {
   ProviderStatus,
   Message,
   ChatOptions,
+  ChatResponse,
   StreamChunk,
 } from '../types.js';
 
@@ -42,12 +43,24 @@ export class GLMProvider implements Provider {
   }
 
   getModels(): string[] {
-    return this.config.models ?? ['glm-4-flash', 'glm-4', 'glm-4-plus', 'glm-4-think'];
+    return [...(this.config.models ?? ['glm-4-flash', 'glm-4', 'glm-4-plus', 'glm-4-think'])];
+  }
+
+  async chat(messages: readonly Message[], options?: ChatOptions): Promise<ChatResponse> {
+    let content = '';
+    for await (const chunk of this.stream(messages, options)) {
+      if (!chunk.done) content += chunk.delta;
+    }
+    return { content, model: options?.model ?? this.config.defaultModel ?? 'glm-4-flash' };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return !!process.env['GLM_FREE_COOKIE'];
   }
 
   async *stream(messages: readonly Message[], options?: ChatOptions): AsyncIterable<StreamChunk> {
-    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: m.content }));
-    const model = options?.model ?? this.config.defaultModel;
+    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: typeof m.content === 'string' ? m.content : '' }));
+    const model = options?.model ?? this.config.defaultModel ?? 'glm-4-flash';
     for await (const delta of this.native.stream(nativeMsgs, { model })) {
       yield { delta, done: false };
     }
@@ -59,9 +72,9 @@ export class GLMProvider implements Provider {
     return {
       name: this.name,
       available: configured,
-      error: configured ? undefined : 'GLM_FREE_COOKIE not set',
       lastChecked: new Date(),
       models: this.getModels(),
+      ...(configured ? {} : { error: 'GLM_FREE_COOKIE not set' }),
     };
   }
 }

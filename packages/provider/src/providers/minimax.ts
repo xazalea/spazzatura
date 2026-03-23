@@ -12,6 +12,7 @@ import type {
   ProviderStatus,
   Message,
   ChatOptions,
+  ChatResponse,
   StreamChunk,
 } from '../types.js';
 
@@ -42,11 +43,23 @@ export class MiniMaxProvider implements Provider {
   }
 
   getModels(): string[] {
-    return this.config.models ?? ['hailuo', 'MiniMax-Text-01'];
+    return [...(this.config.models ?? ['hailuo', 'MiniMax-Text-01'])];
+  }
+
+  async chat(messages: readonly Message[], options?: ChatOptions): Promise<ChatResponse> {
+    let content = '';
+    for await (const chunk of this.stream(messages, options)) {
+      if (!chunk.done) content += chunk.delta;
+    }
+    return { content, model: 'hailuo' };
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return !!process.env['MINIMAX_COOKIE'];
   }
 
   async *stream(messages: readonly Message[], _options?: ChatOptions): AsyncIterable<StreamChunk> {
-    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: m.content }));
+    const nativeMsgs = messages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: typeof m.content === 'string' ? m.content : '' }));
     for await (const delta of this.native.stream(nativeMsgs)) {
       yield { delta, done: false };
     }
@@ -58,9 +71,9 @@ export class MiniMaxProvider implements Provider {
     return {
       name: this.name,
       available: configured,
-      error: configured ? undefined : 'MINIMAX_COOKIE not set',
       lastChecked: new Date(),
       models: this.getModels(),
+      ...(configured ? {} : { error: 'MINIMAX_COOKIE not set' }),
     };
   }
 }
