@@ -1,13 +1,12 @@
 /**
  * TUI entry point — Ink-based React terminal interface with TTE effect integration.
  *
- * Mount/unmount loop:
- *   1. Render App with Ink
- *   2. App buffers AI response and calls onTTERequest(response, newState)
- *   3. We unmount Ink (releases terminal)
- *   4. Play TTE effect via subprocess (writes ANSI directly to terminal)
- *   5. Remount App with updated state — goto 1
- *   6. User quits → exit loop
+ * Boot sequence:
+ *   1. Start all vendor AI proxy services in background (non-blocking)
+ *   2. Check / auto-install TTE
+ *   3. Enter mount/unmount loop:
+ *        render App → await TTE event → unmount Ink → play TTE → remount → repeat
+ *   4. User quits → exit
  */
 
 import type { GlobalOptions } from '../index.js';
@@ -28,7 +27,12 @@ type TTEEvent =
 
 export async function startTUI(options: TUIOptions): Promise<void> {
   try {
-    // Check TTE availability; attempt silent install if missing
+    // ── Start vendor services in background ───────────────────────────────────
+    void import('../services/manager.js').then(({ startAllServices }) => {
+      void startAllServices();
+    }).catch(() => { /* services unavailable — ignore */ });
+
+    // ── TTE availability (fire-and-forget install if missing) ─────────────────
     const tteOk = await checkTte();
     if (!tteOk) void autoInstallTte();
 
@@ -44,7 +48,7 @@ export async function startTUI(options: TUIOptions): Promise<void> {
       provider: options.provider,
       model: options.model,
       tokens: 0,
-      ollamaEnabled: loadSettings().ollamaEnabled,
+      localEnabled: loadSettings().localEnabled,
     };
 
     let shouldExit = false;
@@ -78,20 +82,17 @@ export async function startTUI(options: TUIOptions): Promise<void> {
         continue;
       }
 
-      // Update shared state for next cycle
       Object.assign(shared, event.state);
 
       if (event.type === 'tte') {
         await displayResponse(event.response);
       } else {
-        // Error: print the error message header then animate with unstable
         process.stdout.write('\n\x1b[31m✗ error\x1b[0m\n');
         await display(event.response, 'unstable');
         process.stdout.write('\n');
       }
     }
   } catch {
-    // Ink or TTE not available — fall back to REPL
     const { startREPL } = await import('../repl.js');
     await startREPL(options.globalOptions ?? {});
   }

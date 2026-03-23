@@ -1,7 +1,7 @@
 /**
- * Chat panel — clean message rendering with no internal timers.
- * TTE effects have already played before messages are added here,
- * so content is always rendered as plain text.
+ * Chat panel — polished, minimal message display.
+ * TTE effects play externally; content here is final plain text.
+ * No internal timers.
  */
 
 import React from 'react';
@@ -20,42 +20,38 @@ export interface ChatViewProps {
   readonly spinChar: string;
 }
 
-function ts(): string {
+function hhmm(): string {
   const d = new Date();
-  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+  return [d.getHours(), d.getMinutes()]
     .map(n => String(n).padStart(2, '0'))
     .join(':');
 }
 
+// ── Message bubbles ───────────────────────────────────────────────────────────
+
 function UserMsg({ m }: { m: Message }): React.ReactElement {
-  const cols = process.stdout.columns ?? 80;
-  const bar = '─'.repeat(Math.min(cols - 12, 60));
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box gap={2}>
-        <Text color="green" bold>{'▸ you'}</Text>
-        <Text dimColor>{ts()}</Text>
-        <Text dimColor>{bar}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingX={2}>
+      <Box gap={2} marginBottom={0}>
+        <Text color="green" bold>you</Text>
+        <Text color="gray" dimColor>{hhmm()}</Text>
       </Box>
-      <Box paddingLeft={4}>
+      <Box paddingLeft={2}>
         <Text wrap="wrap">{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-function AiMsg({ m, model, provider }: { m: Message; model?: string; provider?: string }): React.ReactElement {
-  const tag = model ?? provider ?? 'spaz';
-  const cols = process.stdout.columns ?? 80;
-  const bar = '─'.repeat(Math.max(0, Math.min(cols - tag.length - 14, 60)));
+function AiMsg({ m, model }: { m: Message; model?: string }): React.ReactElement {
+  const label = (model ?? 'spaz').slice(0, 28);
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box gap={2}>
-        <Text color="cyan" bold>{'◈ ' + tag.slice(0, 20)}</Text>
-        <Text dimColor>{ts()}</Text>
-        <Text dimColor>{bar}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingX={2}>
+      <Box gap={2} marginBottom={0}>
+        <Text color="cyan" bold>{label}</Text>
+        <Text color="gray" dimColor>{hhmm()}</Text>
       </Box>
-      <Box paddingLeft={4} flexDirection="column">
+      <Box paddingLeft={2}>
         <Text wrap="wrap" color="white">{m.content}</Text>
       </Box>
     </Box>
@@ -64,83 +60,104 @@ function AiMsg({ m, model, provider }: { m: Message; model?: string; provider?: 
 
 function ErrMsg({ m }: { m: Message }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box gap={2}>
-        <Text color="red" bold>{'✗ error'}</Text>
-        <Text dimColor>{ts()}</Text>
+    <Box flexDirection="column" marginBottom={1} paddingX={2}>
+      <Box gap={2} marginBottom={0}>
+        <Text color="red" bold>error</Text>
+        <Text color="gray" dimColor>{hhmm()}</Text>
       </Box>
-      <Box paddingLeft={4}>
-        <Text color="red" wrap="wrap">{m.content}</Text>
+      <Box paddingLeft={2}>
+        <Text wrap="wrap" color="red" dimColor>{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-const HELP_LINES = [
-  ['/', 'settings & model browser'],
-  ['@file.ts', 'inject file into context'],
-  ['/save [name]', 'save conversation'],
-  ['/load <name>', 'load conversation'],
-  ['/run <cmd>', 'run shell command'],
-  ['^R', 'reset conversation'],
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+const HINTS: [string, string][] = [
+  ['tab',          'switch model'],
+  ['^L',           'toggle local'],
+  ['^R',           'reset chat'],
+  ['@path/to/file','inject file'],
+  ['/save',        'save chat'],
+  ['/load <name>', 'load chat'],
+  ['/run <cmd>',   'run command'],
 ];
 
-function Welcome(): React.ReactElement {
+function EmptyState(): React.ReactElement {
   return (
-    <Box flexDirection="column" marginTop={1} marginLeft={2}>
-      <Text color="cyan" bold>{'  good ai code for u'}</Text>
-      <Text>{' '}</Text>
-      {HELP_LINES.map(([cmd, desc]) => (
-        <Box key={cmd} gap={2}>
-          <Text color="cyan">{('  ' + cmd).padEnd(18)}</Text>
+    <Box flexDirection="column" paddingX={4} paddingTop={2} gap={0}>
+      <Box marginBottom={1}>
+        <Text color="white" bold>good ai code for u</Text>
+      </Box>
+      {HINTS.map(([key, desc]) => (
+        <Box key={key} gap={0}>
+          <Text color="cyan">{key.padEnd(20)}</Text>
           <Text dimColor>{desc}</Text>
         </Box>
       ))}
-      <Text>{' '}</Text>
-      <Text dimColor>{'  type below to start ─────────────'}</Text>
     </Box>
   );
 }
 
-const SPIN_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+// ── Spinner ───────────────────────────────────────────────────────────────────
 
-export function ChatView({ messages, streaming, input, onChangeInput, onSend, model, provider, spinChar }: ChatViewProps): React.ReactElement {
-  const termRows = process.stdout.rows ?? 24;
-  // Reserve rows: top bar (3) + ticker (1) + input (3) + padding (2)
-  const availRows = Math.max(4, termRows - 9);
-  // Rough heuristic: each message ~4 rows
-  const maxMsgs = Math.max(2, Math.floor(availRows / 4));
-  const visible = messages.slice(-maxMsgs);
+const FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'] as const;
 
-  const frame = SPIN_FRAMES.find(f => f === spinChar) ?? '⠋';
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function ChatView({
+  messages,
+  streaming,
+  input,
+  onChangeInput,
+  onSend,
+  model,
+  spinChar,
+}: ChatViewProps): React.ReactElement {
+  const termRows  = process.stdout.rows ?? 24;
+  const termCols  = process.stdout.columns ?? 80;
+
+  // Reserve rows: topbar (2) + input area (3) = 5; each message ~3 rows
+  const maxVisible = Math.max(2, Math.floor((termRows - 5) / 3));
+  const visible = messages.slice(-maxVisible);
+
+  const frame = (FRAMES as readonly string[]).includes(spinChar)
+    ? spinChar
+    : '⠋';
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Message area */}
-      <Box flexDirection="column" flexGrow={1} paddingX={1} paddingTop={1} overflowY="hidden">
-        {messages.length === 0 && !streaming && <Welcome />}
+      {/* ── Message area ─────────────────────────────────────────────────── */}
+      <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+        {messages.length === 0 && !streaming && <EmptyState />}
+
         {visible.map((m, i) => {
-          if (m.role === 'user')  return <UserMsg key={`${i}-u`} m={m} />;
-          if (m.role === 'error') return <ErrMsg  key={`${i}-e`} m={m} />;
-          return <AiMsg key={`${i}-a`} m={m} model={model} provider={provider} />;
+          if (m.role === 'user')  return <UserMsg key={`u${i}`} m={m} />;
+          if (m.role === 'error') return <ErrMsg  key={`e${i}`} m={m} />;
+          return                         <AiMsg   key={`a${i}`} m={m} model={model} />;
         })}
+
         {streaming && (
-          <Box paddingLeft={4} marginBottom={1}>
-            <Text color="yellow">{frame + ' '}</Text>
-            <Text dimColor>{'buffering response...'}</Text>
+          <Box paddingX={4} gap={1} marginBottom={1}>
+            <Text color="cyan">{frame}</Text>
+            <Text dimColor>thinking</Text>
           </Box>
         )}
       </Box>
 
-      {/* Divider */}
-      <Box paddingX={1}>
-        <Text dimColor>{'─'.repeat(Math.max(0, (process.stdout.columns ?? 80) - 2))}</Text>
+      {/* ── Input ────────────────────────────────────────────────────────── */}
+      <Box paddingX={2} paddingBottom={1}>
+        <Text dimColor>{'─'.repeat(termCols - 4)}</Text>
       </Box>
-
-      {/* Input */}
-      <Box paddingX={2} paddingY={0}>
-        <Text color="cyan" bold>{'❯ '}</Text>
-        <TextInput value={input} onChange={onChangeInput} onSubmit={onSend} />
+      <Box paddingX={4} paddingBottom={1}>
+        <Text color="cyan">{'› '}</Text>
+        <TextInput
+          value={input}
+          onChange={onChangeInput}
+          onSubmit={onSend}
+          placeholder="ask anything..."
+        />
       </Box>
     </Box>
   );

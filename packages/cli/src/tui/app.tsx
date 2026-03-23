@@ -5,7 +5,8 @@
  *   - Ink handles layout, input, chrome, and spinner while AI response buffers.
  *   - When a full AI response arrives, App calls onTTERequest(response, newState).
  *   - The caller (index.ts) unmounts Ink, plays TTE, then remounts with updated state.
- *   - Error responses trigger onTTEError for the 'unstable' effect.
+ *   - Error responses trigger onTTEError for the 'unstable' TTE effect.
+ *   - "local" = Ollama; used only for non-critical/conversational tasks.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -24,9 +25,9 @@ import type { ProviderRouter } from '@spazzatura/provider';
 
 import type { GlobalOptions } from '../index.js';
 import { ChatView } from './chat-view.js';
-import { SettingsOverlay } from './settings-overlay.js';
+import { ModelPicker } from './model-picker.js';
+import { TopBar } from './top-bar.js';
 import type { AvailableProvider } from './settings-overlay.js';
-import { Header } from './header.js';
 
 export interface Message {
   readonly role: 'user' | 'assistant' | 'error';
@@ -38,7 +39,7 @@ export interface SharedState {
   provider?: string;
   model?: string;
   tokens: number;
-  ollamaEnabled: boolean;
+  localEnabled: boolean;
   latency?: number;
 }
 
@@ -46,19 +47,17 @@ export interface AppProps {
   readonly provider?: string;
   readonly model?: string;
   readonly globalOptions?: GlobalOptions;
-  // Initial state restored after unmount/remount cycle
   readonly initialState?: Partial<SharedState>;
-  // Called when a full AI response is ready — triggers Ink unmount + TTE play
   readonly onTTERequest: (response: string, updatedState: SharedState) => void;
-  // Called on AI error — triggers Ink unmount + TTE unstable effect
   readonly onTTEError: (errorMsg: string, updatedState: SharedState) => void;
-  // Called when user requests quit
   readonly onExit: () => void;
 }
 
-const SPAZ_DIR = join(homedir(), '.spazzatura');
-const CONV_DIR = join(SPAZ_DIR, 'conversations');
-const AUTH_FILE = join(SPAZ_DIR, 'auth.json');
+// ── Paths ─────────────────────────────────────────────────────────────────────
+
+const SPAZ_DIR   = join(homedir(), '.spazzatura');
+const CONV_DIR   = join(SPAZ_DIR, 'conversations');
+const AUTH_FILE  = join(SPAZ_DIR, 'auth.json');
 const SETTINGS_FILE = join(SPAZ_DIR, 'settings.json');
 
 function ensureDirs(): void {
@@ -68,16 +67,18 @@ function ensureDirs(): void {
   } catch { /* ignore */ }
 }
 
-export function loadSettings(): { ollamaEnabled: boolean } {
+export function loadSettings(): { localEnabled: boolean } {
   try {
     if (existsSync(SETTINGS_FILE)) {
-      return JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) as { ollamaEnabled: boolean };
+      const raw = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown>;
+      // Support both old key (ollamaEnabled) and new key (localEnabled)
+      return { localEnabled: !!(raw['localEnabled'] ?? raw['ollamaEnabled']) };
     }
   } catch { /* ignore */ }
-  return { ollamaEnabled: false };
+  return { localEnabled: false };
 }
 
-function saveSettings(s: { ollamaEnabled: boolean }): void {
+function saveSettings(s: { localEnabled: boolean }): void {
   try { writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2)); } catch { /* ignore */ }
 }
 
@@ -102,9 +103,11 @@ function loadStoredTokens(): void {
   } catch { /* ignore */ }
 }
 
-function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
+// ── Provider/router helpers ───────────────────────────────────────────────────
+
+function buildRouter(provider?: string, localEnabled = false): ProviderRouter {
   const available = detectAvailableProviders();
-  const filtered = ollamaEnabled ? available : available.filter(p => p.type !== 'ollama');
+  const filtered = localEnabled ? available : available.filter(p => p.type !== 'ollama');
   const providerConfigs = [];
   for (const p of filtered) {
     if (p.configured) {
@@ -121,7 +124,7 @@ function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
   try {
     return createRouter(providerConfigs, getDefaultRoutingConfig());
   } catch {
-    const safeTypes = ['gpt4free', 'chat2api', 'gpt4free-enhanced', 'freeglm', 'glm-free', 'aiclient', 'webai', 'qwen', 'glm', 'minimax', 'claude-free'];
+    const safeTypes = ['gpt4free', 'freeglm', 'gpt4free-enhanced', 'free-gpt4-web', 'webai', 'aiclient'];
     const safe = providerConfigs.filter(c => safeTypes.includes(c.type));
     return createRouter(safe.length > 0 ? safe : providerConfigs.slice(0, 1), getDefaultRoutingConfig());
   }
@@ -146,62 +149,47 @@ function resolveFileRefs(text: string): string {
   });
 }
 
-// ── Ollama auto-start (secondary/non-critical tasks only) ────────────────────
+// ── Local (Ollama) secondary router ──────────────────────────────────────────
 
-let ollamaRouter: ProviderRouter | null = null;
+let localRouter: ProviderRouter | null = null;
 
-async function startOllamaIfNeeded(): Promise<void> {
+async function startLocalIfNeeded(): Promise<void> {
   try {
-    // Check if Ollama HTTP API is already up
     const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
-    if (resp.ok) {
-      buildOllamaRouter();
-      return;
-    }
-  } catch { /* not running yet — try to spawn */ }
-
+    if (resp.ok) { buildLocalRouter(); return; }
+  } catch { /* not running */ }
   try {
     const { spawn } = await import('child_process');
-    const proc = spawn('ollama', ['serve'], {
-      stdio: 'ignore',
-      detached: true,
-    });
+    const proc = spawn('ollama', ['serve'], { stdio: 'ignore', detached: true });
     proc.unref();
-
-    // Wait up to 8 seconds for Ollama to start
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 800));
       try {
         const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
-        if (r.ok) { buildOllamaRouter(); return; }
+        if (r.ok) { buildLocalRouter(); return; }
       } catch { /* keep waiting */ }
     }
-  } catch { /* ollama not installed — skip silently */ }
+  } catch { /* ollama not installed */ }
 }
 
-function buildOllamaRouter(): void {
+function buildLocalRouter(): void {
   try {
     const cfg = getDefaultProviderConfig('ollama');
-    ollamaRouter = createRouter([cfg], getDefaultRoutingConfig());
+    localRouter = createRouter([cfg], getDefaultRoutingConfig());
   } catch { /* ignore */ }
 }
 
-/**
- * Classify a message as "non-critical" (safe to delegate to Ollama).
- * Only returns true if message is clearly conversational/suggestion-based.
- */
+/** Non-critical classifier: short, conversational, no code indicators → use local */
 function isNonCritical(text: string): boolean {
   const lower = text.toLowerCase();
-  // Reject if message looks like a coding task
   if (/\bcode\b|\bimplement\b|\bwrite\b|\bfix\b|\bbug\b|\brefactor\b|\bdebug\b|\berror\b|\btest\b/.test(lower)) return false;
   if (/```|class |function |const |import |export |async /.test(text)) return false;
-  // Accept if short and conversational
-  const wordCount = text.trim().split(/\s+/).length;
-  if (wordCount > 30) return false;
-  if (/^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|what|how|why|who|when|where|suggest|opinion|think|idea|help|advice|recommend)/i.test(lower)) return true;
-  return false;
+  if (text.trim().split(/\s+/).length > 30) return false;
+  return /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|what|how|why|who|when|where|suggest|opinion|think|idea|help|advice|recommend)/i.test(lower);
 }
+
+// ── Background auth ───────────────────────────────────────────────────────────
 
 async function runBackgroundAuth(onTokenFound: (service: string) => void): Promise<void> {
   const stored = existsSync(AUTH_FILE)
@@ -218,35 +206,40 @@ async function runBackgroundAuth(onTokenFound: (service: string) => void): Promi
   } catch { /* playwright unavailable */ }
 }
 
+// ── Animation constants ───────────────────────────────────────────────────────
+
 const SPIN_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 const ANIM_PERIOD = 8;
+
+// ── Main App Component ────────────────────────────────────────────────────────
 
 export function App({ provider, model, initialState, onTTERequest, onTTEError, onExit }: AppProps): React.ReactElement {
   const { exit } = useApp();
 
-  const [messages, setMessages] = useState<Message[]>(initialState?.messages ?? []);
-  const [input, setInput] = useState('');
-  const [streaming, setStreaming] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [router, setRouter] = useState<ProviderRouter | undefined>(undefined);
-  const [tokenCount, setTokenCount] = useState(initialState?.tokens ?? 0);
-  const [latency, setLatency] = useState<number | undefined>(initialState?.latency);
+  const [messages,       setMessages]       = useState<Message[]>(initialState?.messages ?? []);
+  const [input,          setInput]          = useState('');
+  const [streaming,      setStreaming]       = useState(false);
+  const [showPicker,     setShowPicker]      = useState(false);
+  const [router,         setRouter]         = useState<ProviderRouter | undefined>(undefined);
+  const [tokenCount,     setTokenCount]     = useState(initialState?.tokens ?? 0);
+  const [latency,        setLatency]        = useState<number | undefined>(initialState?.latency);
   const [activeProvider, setActiveProvider] = useState<string | undefined>(initialState?.provider ?? provider);
-  const [activeModel, setActiveModel] = useState<string | undefined>(initialState?.model ?? model);
-  const [ollamaEnabled, setOllamaEnabled] = useState(initialState?.ollamaEnabled ?? loadSettings().ollamaEnabled);
+  const [activeModel,    setActiveModel]    = useState<string | undefined>(initialState?.model ?? model);
+  const [localEnabled,   setLocalEnabled]   = useState(initialState?.localEnabled ?? loadSettings().localEnabled);
   const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
+  const [localReady,     setLocalReady]     = useState(false);
 
-  const [animTick, setAnimTick] = useState(0);
-  const [spinTick, setSpinTick] = useState(0);
+  const [animTick,  setAnimTick]  = useState(0);
+  const [spinTick,  setSpinTick]  = useState(0);
   const [tickerPos, setTickerPos] = useState(0);
 
-  const authRunning = useRef(false);
-  const initialized = useRef(false);
+  const authRunning   = useRef(false);
+  const initialized   = useRef(false);
 
-  // Single root animation clock
+  // Single root animation clock — no per-component timers
   useEffect(() => {
-    const slow = setInterval(() => setAnimTick(t => (t + 1) % ANIM_PERIOD), 500);
-    const ticker = setInterval(() => setTickerPos(p => p + 1), 120);
+    const slow   = setInterval(() => setAnimTick(t => (t + 1) % ANIM_PERIOD), 500);
+    const ticker = setInterval(() => setTickerPos(p => p + 1), 130);
     return () => { clearInterval(slow); clearInterval(ticker); };
   }, []);
 
@@ -258,7 +251,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
 
   const spinChar = SPIN_CHARS[spinTick] ?? '⠋';
 
-  // One-time initialization (skip if state restored from prior cycle)
+  // One-time initialization
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -269,7 +262,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     setAvailableProviders(available);
 
     let r: ProviderRouter | undefined;
-    try { r = buildRouter(provider, ollamaEnabled); } catch { /* handled below */ }
+    try { r = buildRouter(provider, localEnabled); } catch { /* ignore */ }
     if (r !== undefined) {
       setRouter(r);
       if (activeProvider === undefined) {
@@ -278,14 +271,16 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       }
     }
 
-    // Start Ollama in background (non-critical assistant tasks)
-    void startOllamaIfNeeded();
+    // Start local (Ollama) in background
+    void startLocalIfNeeded().then(() => {
+      if (localRouter !== null) setLocalReady(true);
+    });
 
     if (!authRunning.current) {
       authRunning.current = true;
       void runBackgroundAuth(() => {
         loadStoredTokens();
-        try { setRouter(buildRouter(provider, ollamaEnabled)); } catch { /* ignore */ }
+        try { setRouter(buildRouter(provider, localEnabled)); } catch { /* ignore */ }
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -295,46 +290,66 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     setTokenCount(estimateTokens(messages));
   }, [messages]);
 
+  // ── Key bindings ─────────────────────────────────────────────────────────
   useInput((_inputChar, key) => {
-    if (key.escape) { setShowSettings(false); return; }
+    if (showPicker) return; // ModelPicker handles its own input
+    if (key.escape) return;
+    if (key.tab) { setShowPicker(true); return; }
     if (key.ctrl && _inputChar === 'r') { setMessages([]); setTokenCount(0); setLatency(undefined); return; }
+    if (key.ctrl && _inputChar === 'l') {
+      const next = !localEnabled;
+      setLocalEnabled(next);
+      saveSettings({ localEnabled: next });
+      return;
+    }
     if (key.ctrl && _inputChar === 'c') { exit(); onExit(); return; }
   });
 
-  const handleInputChange = useCallback((value: string) => {
-    if (value === '/') { setShowSettings(true); return; }
-    setInput(value);
-  }, []);
-
+  // ── Model selection ───────────────────────────────────────────────────────
   const handleSelectModel = useCallback((prov: string, mdl: string) => {
     setActiveProvider(prov);
     setActiveModel(mdl);
-    setShowSettings(false);
-  }, []);
+    setShowPicker(false);
+    // Rebuild router with the chosen provider prioritized
+    try { setRouter(buildRouter(prov, localEnabled)); } catch { /* ignore */ }
+  }, [localEnabled]);
 
-  const handleToggleOllama = useCallback(() => {
-    const next = !ollamaEnabled;
-    setOllamaEnabled(next);
-    saveSettings({ ollamaEnabled: next });
-  }, [ollamaEnabled]);
+  const handleToggleLocal = useCallback(() => {
+    const next = !localEnabled;
+    setLocalEnabled(next);
+    saveSettings({ localEnabled: next });
+  }, [localEnabled]);
+
+  // ── Input handling ────────────────────────────────────────────────────────
+  const handleInputChange = useCallback((value: string) => {
+    setInput(value);
+  }, []);
 
   const handleSend = useCallback(async (value: string) => {
     const trimmed = value.trim();
     setInput('');
     if (!trimmed) return;
 
+    // Commands
     if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') { exit(); onExit(); return; }
     if (trimmed === '/clear') { setMessages([]); setTokenCount(0); return; }
-    if (trimmed === '/settings') { setShowSettings(true); return; }
+    if (trimmed === '/models' || trimmed === '/switch') { setShowPicker(true); return; }
+    if (trimmed === '/local' || trimmed === '/ollama') {
+      const next = !localEnabled;
+      setLocalEnabled(next);
+      saveSettings({ localEnabled: next });
+      setMessages(prev => [...prev, { role: 'assistant', content: `local inference: ${next ? 'enabled ✓' : 'disabled'}` }]);
+      return;
+    }
 
     if (trimmed.startsWith('/save')) {
       const name = trimmed.slice(5).trim() || ('conv_' + Date.now());
       try {
         const path = join(CONV_DIR, name + '.json');
         writeFileSync(path, JSON.stringify(messages, null, 2));
-        setMessages(prev => [...prev, { role: 'assistant', content: `✓ Saved to ${path}` }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: `✓ saved → ${path}` }]);
       } catch (e) {
-        setMessages(prev => [...prev, { role: 'error', content: 'Save failed: ' + String(e) }]);
+        setMessages(prev => [...prev, { role: 'error', content: 'save failed: ' + String(e) }]);
       }
       return;
     }
@@ -344,9 +359,9 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       try {
         const path = join(CONV_DIR, name + (name.endsWith('.json') ? '' : '.json'));
         const data = JSON.parse(readFileSync(path, 'utf-8')) as Message[];
-        setMessages([...data, { role: 'assistant', content: `✓ Loaded ${data.length} messages` }]);
+        setMessages([...data, { role: 'assistant', content: `✓ loaded ${data.length} messages` }]);
       } catch (e) {
-        setMessages(prev => [...prev, { role: 'error', content: 'Load failed: ' + String(e) }]);
+        setMessages(prev => [...prev, { role: 'error', content: 'load failed: ' + String(e) }]);
       }
       return;
     }
@@ -355,24 +370,23 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       const cmd = trimmed.slice(5).trim();
       try {
         const out = execSync(cmd, { encoding: 'utf-8', timeout: 30000 });
-        const bar = '─'.repeat(48);
-        setMessages(prev => [...prev, { role: 'assistant', content: `┌─ ${cmd} ─${bar.slice(cmd.length + 2)}\n${out.trim()}\n└${bar}` }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: `$ ${cmd}\n\n${out.trim()}` }]);
       } catch (e: unknown) {
         const err = e as { stderr?: string; message?: string };
-        setMessages(prev => [...prev, { role: 'error', content: 'Command failed: ' + (err.stderr ?? err.message ?? String(e)) }]);
+        setMessages(prev => [...prev, { role: 'error', content: 'command failed: ' + (err.stderr ?? err.message ?? String(e)) }]);
       }
       return;
     }
 
     if (router === undefined) {
-      setMessages(prev => [...prev, { role: 'error', content: 'Router not ready. Please wait a moment.' }]);
+      setMessages(prev => [...prev, { role: 'error', content: 'router not ready — please wait a moment' }]);
       return;
     }
 
-    // Use Ollama for non-critical (conversational) tasks when available
-    const useOllama = ollamaEnabled && ollamaRouter !== null && isNonCritical(trimmed);
-    const activeRouter = useOllama ? ollamaRouter! : router;
-    const routerProvider = useOllama ? 'ollama' : activeProvider;
+    // Decide whether to use local router
+    const useLocal = localEnabled && localRouter !== null && localReady && isNonCritical(trimmed);
+    const activeRouter = useLocal ? localRouter! : router;
+    const routerProvider = useLocal ? 'local' : activeProvider;
 
     const resolved = resolveFileRefs(trimmed);
     const userMsg: Message = { role: 'user', content: trimmed };
@@ -380,8 +394,8 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     setMessages(newMessages);
     setStreaming(true);
 
-    const systemPrompt = useOllama
-      ? 'You are Spazzatura, a helpful AI assistant. Be concise and friendly.'
+    const systemPrompt = useLocal
+      ? 'You are Spazzatura, a friendly AI assistant. Be concise.'
       : 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.';
 
     const provMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -394,7 +408,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     const t0 = Date.now();
 
     try {
-      const opts = { ...(activeModel !== undefined && !useOllama ? { model: activeModel } : {}) };
+      const opts = { ...(activeModel !== undefined && !useLocal ? { model: activeModel } : {}) };
       for await (const chunk of activeRouter.stream(provMsgs, opts)) {
         if (chunk.delta) content += chunk.delta;
         if (chunk.done) break;
@@ -403,19 +417,16 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       const elapsed = Date.now() - t0;
       setStreaming(false);
 
-      const aiMsg: Message = { role: 'assistant', content };
-      const finalMessages = [...newMessages, aiMsg];
-
+      const finalMessages = [...newMessages, { role: 'assistant' as const, content }];
       const updatedState: SharedState = {
         messages: finalMessages,
         provider: routerProvider,
-        model: useOllama ? undefined : activeModel,
+        model: useLocal ? 'llama3.2' : activeModel,
         tokens: estimateTokens(finalMessages),
-        ollamaEnabled,
+        localEnabled,
         latency: elapsed,
       };
 
-      // Hand off to caller — Ink will unmount, TTE plays, then Ink remounts
       onTTERequest(content, updatedState);
 
     } catch (err) {
@@ -423,70 +434,63 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       const msg = err instanceof Error ? err.message : String(err);
       const errMsg: Message = {
         role: 'error',
-        content: `◈ Provider error: ${msg}\n\n→ Run [/] settings to switch models\n→ Run \`spaz auth\` to authenticate providers`,
+        content: `provider error: ${msg}\n\n→ [tab] to switch model\n→ /local to toggle local inference\n→ run \`spaz auth\` to authenticate providers`,
       };
       const errorMessages = [...newMessages, errMsg];
-
       const updatedState: SharedState = {
         messages: errorMessages,
-        provider: activeProvider,
-        model: activeModel,
+        provider: routerProvider,
+        model: useLocal ? 'llama3.2' : activeModel,
         tokens: estimateTokens(errorMessages),
-        ollamaEnabled,
-        latency: undefined,
+        localEnabled,
       };
-
       onTTEError(msg, updatedState);
     }
-  }, [router, activeModel, activeProvider, ollamaEnabled, messages, exit, onTTERequest, onTTEError, onExit]);
+  }, [router, activeModel, activeProvider, localEnabled, localReady, messages, exit, onTTERequest, onTTEError, onExit]);
 
   const handleSendSync = useCallback((v: string) => { void handleSend(v); }, [handleSend]);
 
   const termRows = process.stdout.rows ?? 24;
-
   const msgCount = messages.filter(m => m.role !== 'error').length;
 
   return (
     <Box flexDirection="column" height={termRows}>
-      <Header
+      <TopBar
         streaming={streaming}
-        providerLabel={activeProvider}
+        provider={activeProvider}
         model={activeModel}
         tokens={tokenCount > 0 ? tokenCount : undefined}
         messageCount={msgCount > 0 ? msgCount : undefined}
-        ollamaActive={ollamaEnabled && ollamaRouter !== null}
+        localEnabled={localEnabled}
+        localReady={localReady}
         animTick={animTick}
         tickerPos={tickerPos}
         spinChar={spinChar}
+        latency={latency}
       />
 
-      <Box flexDirection="column" flexGrow={1}>
-        {showSettings ? (
-          <Box flexDirection="column" flexGrow={1} alignItems="center" justifyContent="center">
-            <SettingsOverlay
-              onClose={() => setShowSettings(false)}
-              activeModel={activeModel}
-              activeProvider={activeProvider}
-              onSelectModel={handleSelectModel}
-              ollamaEnabled={ollamaEnabled}
-              onToggleOllama={handleToggleOllama}
-              availableProviders={availableProviders}
-              animTick={animTick}
-            />
-          </Box>
-        ) : (
-          <ChatView
-            messages={messages}
-            streaming={streaming}
-            input={input}
-            onChangeInput={handleInputChange}
-            onSend={handleSendSync}
-            spinChar={spinChar}
-            provider={activeProvider}
-            {...(activeModel !== undefined ? { model: activeModel } : {})}
+      {showPicker ? (
+        <Box flexDirection="column" flexGrow={1} alignItems="center" justifyContent="center">
+          <ModelPicker
+            onSelect={handleSelectModel}
+            onClose={() => setShowPicker(false)}
+            activeModel={activeModel}
+            localEnabled={localEnabled}
+            onToggleLocal={handleToggleLocal}
           />
-        )}
-      </Box>
+        </Box>
+      ) : (
+        <ChatView
+          messages={messages}
+          streaming={streaming}
+          input={input}
+          onChangeInput={handleInputChange}
+          onSend={handleSendSync}
+          spinChar={spinChar}
+          provider={activeProvider}
+          model={activeModel}
+        />
+      )}
     </Box>
   );
 }

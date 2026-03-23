@@ -26,7 +26,7 @@ export interface ServiceDef {
 
 /** All configured AI proxy services */
 export const SERVICES: ServiceDef[] = [
-  // LLM-Red-Team services — OpenAI-compatible, need auth tokens injected via env
+  // ── LLM-Red-Team free API proxies (need auth cookie injected via env) ───────
   {
     name: 'qwen-free-api',
     dir: join(VENDOR_DIR, 'qwen-free-api'),
@@ -51,7 +51,8 @@ export const SERVICES: ServiceDef[] = [
     startCmd: 'node dist/index.js',
     healthPath: '/v1/models',
   },
-  // FreeGLM — proxy to open.bigmodel.cn
+  // ── No-auth free proxies ─────────────────────────────────────────────────────
+  // FreeGLM — proxy to open.bigmodel.cn (no auth needed)
   {
     name: 'freeglm',
     dir: join(VENDOR_DIR, 'freeglm'),
@@ -68,6 +69,26 @@ export const SERVICES: ServiceDef[] = [
     startCmd: 'node dist/index.js',
     healthPath: '/v1/models',
   },
+  // gpt4free-ts — TypeScript gpt4free server (port 3051)
+  {
+    name: 'gpt4free-ts',
+    dir: join(VENDOR_DIR, 'gpt4free-ts'),
+    port: 3051,
+    buildCmd: 'npm run build',
+    startCmd: 'node dist/index.js',
+    healthPath: '/v1/models',
+  },
+  // WebAI-to-API — Google Gemini web proxy (Python, port 8001)
+  {
+    name: 'webai-api',
+    dir: join(VENDOR_DIR, 'webai-api'),
+    port: 8001,
+    buildCmd: 'pip install -r requirements.txt -q',
+    startCmd: 'python main.py',
+    healthPath: '/',
+    runtime: 'python',
+  },
+  // ── Auth-cookie-based proxies ────────────────────────────────────────────────
   // GLM-Free-API (xiaoY) — GLM web session proxy (port 3049)
   {
     name: 'glm-free-xiaoY',
@@ -77,11 +98,11 @@ export const SERVICES: ServiceDef[] = [
     startCmd: 'node dist/index.js',
     healthPath: '/v1/models',
   },
-  // gpt4free-ts — TypeScript gpt4free server (port 3051)
+  // Chat2API — multi-provider Chinese AI proxy (port 3040)
   {
-    name: 'gpt4free-ts',
-    dir: join(VENDOR_DIR, 'gpt4free-ts'),
-    port: 3051,
+    name: 'chat2api',
+    dir: join(VENDOR_DIR, 'chat2api'),
+    port: 3040,
     buildCmd: 'npm run build',
     startCmd: 'node dist/index.js',
     healthPath: '/v1/models',

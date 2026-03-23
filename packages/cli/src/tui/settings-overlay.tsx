@@ -195,12 +195,12 @@ function SettingsPane({ ollamaEnabled, selectedIdx }: { ollamaEnabled: boolean; 
       <Text>{' '}</Text>
       <Box>
         <Text color={selectedIdx === 0 ? 'yellow' : 'transparent'}>{selectedIdx === 0 ? '▸' : ' '}</Text>
-        <Text color={ollamaEnabled ? 'greenBright' : 'gray'}>{ollamaEnabled ? ' [ON ] ' : ' [OFF] '}</Text>
-        <Text color={selectedIdx === 0 ? 'white' : 'gray'} bold={selectedIdx === 0}>{'Ollama local LLM'}</Text>
+        <Text color={ollamaEnabled ? 'magenta' : 'gray'}>{ollamaEnabled ? ' [ON ] ' : ' [OFF] '}</Text>
+        <Text color={selectedIdx === 0 ? 'white' : 'gray'} bold={selectedIdx === 0}>{'local inference'}</Text>
       </Box>
-      <Text dimColor>{'       enables local model inference via Ollama daemon'}</Text>
+      <Text dimColor>{'       enables local model inference via Ollama (rebrand: local)'}</Text>
       <Text>{' '}</Text>
-      <Text dimColor>{'  more settings coming soon'}</Text>
+      <Text dimColor>{'  [^L] from anywhere to toggle · [tab] to switch models'}</Text>
     </Box>
   );
 }
