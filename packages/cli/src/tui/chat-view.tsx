@@ -1,11 +1,12 @@
 /**
- * Chat panel — clean message rendering. No internal timers (uses root animTick).
+ * Chat panel — message history + input.
+ * TTE effects are played BEFORE messages are added here, so content is plain text.
+ * No internal timers (uses root animTick/spinChar from props).
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
-import { Markdown } from './markdown.js';
 import type { Message } from './app.js';
 
 export interface ChatViewProps {
@@ -48,7 +49,7 @@ function AiMsg({ m, model }: { m: Message; model?: string }): React.ReactElement
         <MemoTs />
       </Box>
       <Box paddingLeft={2} flexDirection="column">
-        <Markdown content={m.content} />
+        <Text wrap="wrap" color="white">{m.content}</Text>
       </Box>
     </Box>
   );
@@ -77,15 +78,12 @@ const WELCOME = [
   '  │  ^C          quit                           │',
   '  └──────────────────────────────────────────────┘',
 ];
-const WCOLS = ['cyan', 'gray', 'white', 'cyan'] as const;
-type WC = (typeof WCOLS)[number];
 
-function Welcome({ animTick }: { animTick: number }): React.ReactElement {
-  const c: WC = WCOLS[Math.floor(animTick / 2) % WCOLS.length] ?? 'cyan';
+function Welcome(): React.ReactElement {
   return (
     <Box flexDirection="column" marginTop={1}>
       {WELCOME.map((line, i) => (
-        <Text key={i} color={i === 0 || i === WELCOME.length - 1 || i === 2 ? 'gray' : c}>{line}</Text>
+        <Text key={i} color={i === 0 || i === WELCOME.length - 1 || i === 2 ? 'gray' : 'cyan'}>{line}</Text>
       ))}
     </Box>
   );
@@ -95,13 +93,10 @@ export function ChatView({ messages, streaming, input, onChangeInput, onSend, mo
   const termRows = process.stdout.rows ?? 24;
   const visible = messages.slice(-Math.max(Math.floor((termRows - 14) / 5), 3));
 
-  // animTick for welcome screen — derive from Date to avoid prop drilling
-  const animTick = Math.floor(Date.now() / 1000) % 8;
-
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Box flexDirection="column" flexGrow={1} paddingX={1} overflowY="hidden">
-        {messages.length === 0 && !streaming && <Welcome animTick={animTick} />}
+        {messages.length === 0 && !streaming && <Welcome />}
         {visible.map((m, i) => {
           if (m.role === 'user')  return <UserMsg key={`${i}-u`} m={m} />;
           if (m.role === 'error') return <ErrMsg  key={`${i}-e`} m={m} />;
@@ -109,14 +104,14 @@ export function ChatView({ messages, streaming, input, onChangeInput, onSend, mo
         })}
         {streaming && (
           <Box paddingLeft={3} marginBottom={1}>
-            <Text color="cyan">{spinChar + '  thinking'}</Text>
-            <Text dimColor>...</Text>
+            <Text color="cyan">{spinChar + '  buffering response'}</Text>
+            <Text dimColor>{'...'}</Text>
           </Box>
         )}
       </Box>
 
       <Box borderStyle="single" borderColor="gray" paddingX={1} marginX={1}>
-        <Text color="cyan" bold>❯ </Text>
+        <Text color="cyan" bold>{'❯ '}</Text>
         <TextInput value={input} onChange={onChangeInput} onSubmit={onSend} />
       </Box>
     </Box>

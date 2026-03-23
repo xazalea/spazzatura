@@ -10,7 +10,6 @@ export interface StatusBarProps {
   readonly model?: string;
   readonly tokens?: number;
   readonly latency?: number;
-  readonly layout: string;
   readonly messageCount?: number;
   readonly animTick: number;
 }
@@ -34,10 +33,10 @@ export function StatusBar({ provider, model, tokens, latency, messageCount, anim
         {messageCount !== undefined && messageCount > 0 && <Text dimColor>{'· ' + messageCount + ' msgs'}</Text>}
       </Box>
       <Box gap={1}>
-        <Text color="cyan">[/]</Text>
+        <Text color="cyan">{'[/]'}</Text>
         <Text dimColor>settings</Text>
         <Text dimColor>·</Text>
-        <Text dimColor>[^C] quit</Text>
+        <Text dimColor>{'[^C] quit'}</Text>
       </Box>
     </Box>
   );

@@ -1,12 +1,11 @@
 /**
- * Header — ASCII art logo with slow color cycle. No individual timer.
- * Receives animTick from the root App to avoid per-component intervals.
+ * Header — ASCII art logo with slow color cycle.
+ * Receives animTick from root App (no internal timers).
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 
-// Adapted from user-provided logo — trimmed to ~70 chars wide
 const LOGO: string[] = [
   '          ██  █                                        ',
   '  ███    ██   █                                        ',
@@ -30,8 +29,8 @@ const TICKER =
   'Claude · GPT-4 · Qwen · GLM · MiniMax · Gemini · DeepSeek · Kimi · Grok · free & open · ';
 
 export interface HeaderProps {
-  readonly animTick: number;   // root clock — 0..COLORS.length-1
-  readonly tickerPos: number;  // scrolling ticker position
+  readonly animTick: number;
+  readonly tickerPos: number;
   readonly streaming: boolean;
   readonly spinChar: string;
   readonly providerLabel?: string;
@@ -45,7 +44,7 @@ export function Header({ animTick, tickerPos, streaming, spinChar, providerLabel
   const tickerSlice = doubled.slice(tickerPos % TICKER.length, (tickerPos % TICKER.length) + 62);
 
   const badge = streaming
-    ? `${spinChar} thinking`
+    ? `${spinChar} buffering...`
     : `● ${(providerLabel ?? 'ready').slice(0, 16)}`;
 
   return (

@@ -1,10 +1,15 @@
 /**
- * TUI App — multi-pane animated terminal interface for Spazzatura.
- * Features: boot screen, background auth, settings overlay, model browser.
+ * TUI App — Ink-based terminal interface with TTE effect integration.
+ *
+ * Architecture:
+ *   - Ink handles layout, input, chrome, and spinner while AI response buffers.
+ *   - When a full AI response arrives, App calls onTTERequest(response, newState).
+ *   - The caller (index.ts) unmounts Ink, plays TTE, then remounts with updated state.
+ *   - Error responses trigger onTTEError for the 'unstable' effect.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, useApp, useInput } from 'ink';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -23,30 +28,39 @@ import { SettingsOverlay } from './settings-overlay.js';
 import type { AvailableProvider } from './settings-overlay.js';
 import { StatusBar } from './status-bar.js';
 import { Header } from './header.js';
-import { Sidebar } from './sidebar.js';
-import type { ModelEntry } from './sidebar.js';
-import { BootScreen } from './boot-screen.js';
-import type { BootEntry } from './boot-screen.js';
 
 export interface Message {
   readonly role: 'user' | 'assistant' | 'error';
   readonly content: string;
 }
 
+export interface SharedState {
+  messages: Message[];
+  provider?: string;
+  model?: string;
+  tokens: number;
+  ollamaEnabled: boolean;
+  latency?: number;
+}
+
 export interface AppProps {
   readonly provider?: string;
   readonly model?: string;
-  readonly globalOptions: GlobalOptions;
+  readonly globalOptions?: GlobalOptions;
+  // Initial state restored after unmount/remount cycle
+  readonly initialState?: Partial<SharedState>;
+  // Called when a full AI response is ready — triggers Ink unmount + TTE play
+  readonly onTTERequest: (response: string, updatedState: SharedState) => void;
+  // Called on AI error — triggers Ink unmount + TTE unstable effect
+  readonly onTTEError: (errorMsg: string, updatedState: SharedState) => void;
+  // Called when user requests quit
+  readonly onExit: () => void;
 }
-
-type Layout = 'boot' | 'chat' | 'settings';
 
 const SPAZ_DIR = join(homedir(), '.spazzatura');
 const CONV_DIR = join(SPAZ_DIR, 'conversations');
 const AUTH_FILE = join(SPAZ_DIR, 'auth.json');
 const SETTINGS_FILE = join(SPAZ_DIR, 'settings.json');
-
-// ── Persistence helpers ───────────────────────────────────────────────────────
 
 function ensureDirs(): void {
   try {
@@ -55,7 +69,7 @@ function ensureDirs(): void {
   } catch { /* ignore */ }
 }
 
-function loadSettings(): { ollamaEnabled: boolean } {
+export function loadSettings(): { ollamaEnabled: boolean } {
   try {
     if (existsSync(SETTINGS_FILE)) {
       return JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) as { ollamaEnabled: boolean };
@@ -89,8 +103,6 @@ function loadStoredTokens(): void {
   } catch { /* ignore */ }
 }
 
-// ── Provider/router helpers ──────────────────────────────────────────────────
-
 function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
   const available = detectAvailableProviders();
   const filtered = ollamaEnabled ? available : available.filter(p => p.type !== 'ollama');
@@ -110,24 +122,10 @@ function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
   try {
     return createRouter(providerConfigs, getDefaultRoutingConfig());
   } catch {
-    // Fallback: retry with only well-known safe providers
     const safeTypes = ['gpt4free', 'chat2api', 'gpt4free-enhanced', 'freeglm', 'glm-free', 'aiclient', 'webai', 'qwen', 'glm', 'minimax', 'claude-free'];
     const safe = providerConfigs.filter(c => safeTypes.includes(c.type));
     return createRouter(safe.length > 0 ? safe : providerConfigs.slice(0, 1), getDefaultRoutingConfig());
   }
-}
-
-function buildAllModels(providers: AvailableProvider[], ollamaEnabled: boolean): ModelEntry[] {
-  const models: ModelEntry[] = [];
-  for (const p of providers) {
-    if (!ollamaEnabled && p.type === 'ollama') continue;
-    try {
-      const cfg = getDefaultProviderConfig(p.type);
-      const list = cfg.models ?? (cfg.defaultModel ? [cfg.defaultModel] : []);
-      for (const m of list) models.push({ provider: p.type, model: m });
-    } catch { /* skip */ }
-  }
-  return models;
 }
 
 function estimateTokens(messages: Message[]): number {
@@ -149,73 +147,49 @@ function resolveFileRefs(text: string): string {
   });
 }
 
-// ── Background auth (silent, headless) ───────────────────────────────────────
-
-async function runBackgroundAuth(
-  onTokenFound: (service: string, token: string) => void,
-): Promise<void> {
-  // Only try services that don't have tokens yet
+async function runBackgroundAuth(onTokenFound: (service: string) => void): Promise<void> {
   const stored = existsSync(AUTH_FILE)
     ? (() => { try { return JSON.parse(readFileSync(AUTH_FILE, 'utf-8')) as Record<string, unknown>; } catch { return {}; } })()
     : {};
-
-  const needsAuth = ['qwen', 'chatglm', 'minimax', 'gemini']
-    .filter(s => !stored[s]);
-
+  const needsAuth = ['qwen', 'chatglm', 'minimax', 'gemini'].filter(s => !stored[s]);
   if (needsAuth.length === 0) return;
-
   try {
     const { runAllAuth } = await import('../auth/automator.js');
     await runAllAuth(
-      (result) => {
-        if (result.success && result.token) {
-          onTokenFound(result.service, result.token);
-        }
-      },
+      (result) => { if (result.success) onTokenFound(result.service); },
       needsAuth,
     );
-  } catch { /* playwright not available — skip silently */ }
+  } catch { /* playwright unavailable */ }
 }
 
-// ── Main App Component ────────────────────────────────────────────────────────
-
 const SPIN_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
-const ANIM_PERIOD = 8; // number of distinct animTick values
+const ANIM_PERIOD = 8;
 
-export function App({ provider, model, globalOptions: _globalOptions }: AppProps): React.ReactElement {
+export function App({ provider, model, initialState, onTTERequest, onTTEError, onExit }: AppProps): React.ReactElement {
   const { exit } = useApp();
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(initialState?.messages ?? []);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
-  const [layout, setLayout] = useState<Layout>('boot');
+  const [showSettings, setShowSettings] = useState(false);
   const [router, setRouter] = useState<ProviderRouter | undefined>(undefined);
-  const [tokenCount, setTokenCount] = useState(0);
-  const [latency, setLatency] = useState<number | undefined>(undefined);
-  const [activeProvider, setActiveProvider] = useState<string | undefined>(provider);
-  const [activeModel, setActiveModel] = useState<string | undefined>(model);
-  const [ollamaEnabled, setOllamaEnabled] = useState(() => loadSettings().ollamaEnabled);
+  const [tokenCount, setTokenCount] = useState(initialState?.tokens ?? 0);
+  const [latency, setLatency] = useState<number | undefined>(initialState?.latency);
+  const [activeProvider, setActiveProvider] = useState<string | undefined>(initialState?.provider ?? provider);
+  const [activeModel, setActiveModel] = useState<string | undefined>(initialState?.model ?? model);
+  const [ollamaEnabled, setOllamaEnabled] = useState(initialState?.ollamaEnabled ?? loadSettings().ollamaEnabled);
   const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
-  const [allModels, setAllModels] = useState<ModelEntry[]>([]);
-  const [bootEntries, setBootEntries] = useState<BootEntry[]>([
-    { label: 'Loading stored tokens',   status: 'running' },
-    { label: 'Detecting providers',     status: 'pending' },
-    { label: 'Building router',         status: 'pending' },
-    { label: 'Background auth',         status: 'pending' },
-  ]);
-  const authRunning = useRef(false);
 
-  // ── Single root animation clock ───────────────────────────────────────────
-  // All child components receive animTick/spinChar instead of running their own
-  // setInterval timers. This prevents cascading re-renders that cause glitching.
   const [animTick, setAnimTick] = useState(0);
   const [spinTick, setSpinTick] = useState(0);
   const [tickerPos, setTickerPos] = useState(0);
 
+  const authRunning = useRef(false);
+  const initialized = useRef(false);
+
+  // Single root animation clock
   useEffect(() => {
-    // Slow tick for color cycling (500ms) — drives logo, sidebar, status bar
     const slow = setInterval(() => setAnimTick(t => (t + 1) % ANIM_PERIOD), 500);
-    // Ticker scroll (120ms)
     const ticker = setInterval(() => setTickerPos(p => p + 1), 120);
     return () => { clearInterval(slow); clearInterval(ticker); };
   }, []);
@@ -228,96 +202,55 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
 
   const spinChar = SPIN_CHARS[spinTick] ?? '⠋';
 
-  const termCols = process.stdout.columns ?? 80;
-  const showSidebar = termCols > 110;
-
-  // Helper to update a boot entry
-  const updateBoot = useCallback((idx: number, update: Partial<BootEntry>) => {
-    setBootEntries(prev => prev.map((e, i) => i === idx ? { ...e, ...update } : e));
-  }, []);
-
-  // ── Initialization sequence ──────────────────────────────────────────────
+  // One-time initialization (skip if state restored from prior cycle)
   useEffect(() => {
-    void (async () => {
-      ensureDirs();
+    if (initialized.current) return;
+    initialized.current = true;
+    ensureDirs();
+    loadStoredTokens();
 
-      // Step 0: load stored tokens
-      loadStoredTokens();
-      updateBoot(0, { status: 'ok', detail: 'done' });
+    const available = detectAvailableProviders();
+    setAvailableProviders(available);
 
-      // Step 1: detect providers
-      updateBoot(1, { status: 'running' });
-      const available = detectAvailableProviders();
-      setAvailableProviders(available);
-      const configuredFree = available.filter(p => (p.configured || p.free) && p.type !== 'ollama' || (p.type === 'ollama' && ollamaEnabled));
-      updateBoot(1, { status: 'ok', detail: `${configuredFree.length} providers` });
-
-      // Step 2: build router
-      updateBoot(2, { status: 'running' });
-      let r: ProviderRouter;
-      try {
-        r = buildRouter(provider, ollamaEnabled);
-      } catch (e) {
-        updateBoot(2, { status: 'fail', detail: String(e).slice(0, 30) });
-        setTimeout(() => setLayout('chat'), 1800);
-        return;
-      }
+    let r: ProviderRouter | undefined;
+    try { r = buildRouter(provider, ollamaEnabled); } catch { /* handled below */ }
+    if (r !== undefined) {
       setRouter(r);
-      const firstProvider = provider ?? configuredFree[0]?.type ?? 'auto';
-      setActiveProvider(firstProvider);
-      setAllModels(buildAllModels(available, ollamaEnabled));
-      updateBoot(2, { status: 'ok', detail: 'ready' });
-
-      // Step 3: background auth (headless, silent)
-      updateBoot(3, { status: 'running', detail: 'headless...' });
-      if (!authRunning.current) {
-        authRunning.current = true;
-        void runBackgroundAuth((service, _token) => {
-          updateBoot(3, { status: 'ok', detail: `${service} ✓` });
-          // Rebuild env + router after new token
-          loadStoredTokens();
-          const newRouter = buildRouter(provider, ollamaEnabled);
-          setRouter(newRouter);
-        }).then(() => {
-          // If auth step is still 'running', mark as done
-          setBootEntries(prev => prev.map((e, i) => i === 3 && e.status === 'running' ? { ...e, status: 'skip', detail: 'see `spaz auth`' } : e));
-        }).catch(() => {
-          setBootEntries(prev => prev.map((e, i) => i === 3 && e.status === 'running' ? { ...e, status: 'skip', detail: 'playwright unavailable' } : e));
-        });
+      if (activeProvider === undefined) {
+        const first = available.find(p => (p.configured || p.free) && p.type !== 'ollama');
+        if (first) setActiveProvider(first.type);
       }
+    }
 
-      // Transition to chat after a brief beat (let user see boot screen)
-      setTimeout(() => setLayout('chat'), 1800);
-    })();
+    if (!authRunning.current) {
+      authRunning.current = true;
+      void runBackgroundAuth(() => {
+        loadStoredTokens();
+        try { setRouter(buildRouter(provider, ollamaEnabled)); } catch { /* ignore */ }
+      });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, ollamaEnabled]);
+  }, []);
 
   useEffect(() => {
     setTokenCount(estimateTokens(messages));
   }, [messages]);
 
-  // ── Key bindings ─────────────────────────────────────────────────────────
   useInput((_inputChar, key) => {
-    if (key.escape) {
-      if (layout === 'settings') { setLayout('chat'); return; }
-      if (layout === 'boot') { setLayout('chat'); return; }
-    }
-    if (key.ctrl && _inputChar === 'r') {
-      setMessages([]); setTokenCount(0); setLatency(undefined); return;
-    }
-    if (key.ctrl && _inputChar === 'c') { exit(); return; }
+    if (key.escape) { setShowSettings(false); return; }
+    if (key.ctrl && _inputChar === 'r') { setMessages([]); setTokenCount(0); setLatency(undefined); return; }
+    if (key.ctrl && _inputChar === 'c') { exit(); onExit(); return; }
   });
 
-  // ── Input handling ───────────────────────────────────────────────────────
   const handleInputChange = useCallback((value: string) => {
-    if (value === '/') { setLayout('settings'); return; }
+    if (value === '/') { setShowSettings(true); return; }
     setInput(value);
   }, []);
 
   const handleSelectModel = useCallback((prov: string, mdl: string) => {
     setActiveProvider(prov);
     setActiveModel(mdl);
-    setLayout('chat');
+    setShowSettings(false);
   }, []);
 
   const handleToggleOllama = useCallback(() => {
@@ -326,20 +259,14 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
     saveSettings({ ollamaEnabled: next });
   }, [ollamaEnabled]);
 
-  const handleCloseSettings = useCallback(() => setLayout('chat'), []);
-
   const handleSend = useCallback(async (value: string) => {
     const trimmed = value.trim();
     setInput('');
     if (!trimmed) return;
 
-    if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') { exit(); return; }
+    if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') { exit(); onExit(); return; }
     if (trimmed === '/clear') { setMessages([]); setTokenCount(0); return; }
-    if (trimmed === '/settings') { setLayout('settings'); return; }
-    if (trimmed === '/auth') {
-      setMessages(prev => [...prev, { role: 'assistant', content: '◈ Run `spaz auth` in a separate terminal, or open settings with [/] to manage providers.' }]);
-      return;
-    }
+    if (trimmed === '/settings') { setShowSettings(true); return; }
 
     if (trimmed.startsWith('/save')) {
       const name = trimmed.slice(5).trim() || ('conv_' + Date.now());
@@ -384,98 +311,106 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
     }
 
     const resolved = resolveFileRefs(trimmed);
-    setMessages(prev => [...prev, { role: 'user', content: trimmed }]);
+    const userMsg: Message = { role: 'user', content: trimmed };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
     setStreaming(true);
 
     const provMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks. Use @file.ts to inject files.' },
+      { role: 'system', content: 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.' },
       ...messages.filter(m => m.role !== 'error').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: resolved },
     ];
 
     let content = '';
     const t0 = Date.now();
-    setMessages(prev => [...prev, { role: 'assistant', content: '◌' }]);
 
     try {
       const opts = { ...(activeModel !== undefined ? { model: activeModel } : {}) };
       for await (const chunk of router.stream(provMsgs, opts)) {
-        if (chunk.delta) {
-          content += chunk.delta;
-          setMessages(prev => [...prev.slice(0, -1), { role: 'assistant', content }]);
-        }
+        if (chunk.delta) content += chunk.delta;
         if (chunk.done) break;
       }
-      setLatency(Date.now() - t0);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setMessages(prev => [
-        ...prev.slice(0, -1),
-        {
-          role: 'error',
-          content: `◈ Provider error: ${msg}\n\n→ Run [/] settings to switch models\n→ Run \`spaz auth\` to authenticate providers\n→ Set OPENROUTER_API_KEY for reliable access`,
-        },
-      ]);
-    } finally {
+
+      const elapsed = Date.now() - t0;
       setStreaming(false);
+
+      const aiMsg: Message = { role: 'assistant', content };
+      const finalMessages = [...newMessages, aiMsg];
+
+      const updatedState: SharedState = {
+        messages: finalMessages,
+        provider: activeProvider,
+        model: activeModel,
+        tokens: estimateTokens(finalMessages),
+        ollamaEnabled,
+        latency: elapsed,
+      };
+
+      // Hand off to caller — Ink will unmount, TTE plays, then Ink remounts
+      onTTERequest(content, updatedState);
+
+    } catch (err) {
+      setStreaming(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      const errMsg: Message = {
+        role: 'error',
+        content: `◈ Provider error: ${msg}\n\n→ Run [/] settings to switch models\n→ Run \`spaz auth\` to authenticate providers`,
+      };
+      const errorMessages = [...newMessages, errMsg];
+
+      const updatedState: SharedState = {
+        messages: errorMessages,
+        provider: activeProvider,
+        model: activeModel,
+        tokens: estimateTokens(errorMessages),
+        ollamaEnabled,
+        latency: undefined,
+      };
+
+      onTTEError(msg, updatedState);
     }
-  }, [router, activeModel, messages, exit]);
+  }, [router, activeModel, activeProvider, ollamaEnabled, messages, exit, onTTERequest, onTTEError, onExit]);
 
   const handleSendSync = useCallback((v: string) => { void handleSend(v); }, [handleSend]);
 
   const termRows = process.stdout.rows ?? 24;
 
-  if (layout === 'boot') {
-    const allDone = bootEntries.every(e => e.status !== 'pending' && e.status !== 'running');
-    return (
-      <Box flexDirection="column" height={termRows} alignItems="center" justifyContent="center">
-        <BootScreen entries={bootEntries} done={allDone} animTick={animTick} spinChar={spinChar} />
-      </Box>
-    );
-  }
-
   return (
     <Box flexDirection="column" height={termRows}>
-      <Header streaming={streaming} providerLabel={activeProvider} animTick={animTick} tickerPos={tickerPos} spinChar={spinChar} />
+      <Header
+        streaming={streaming}
+        providerLabel={activeProvider}
+        animTick={animTick}
+        tickerPos={tickerPos}
+        spinChar={spinChar}
+      />
 
-      <Box flexDirection="row" flexGrow={1}>
-        {showSidebar && (
-          <Sidebar
-            allModels={allModels}
-            tokens={tokenCount}
-            activeModel={activeModel}
-            activeProvider={activeProvider}
-            messageCount={messages.filter(m => m.role !== 'error').length}
-            animTick={animTick}
+      <Box flexDirection="column" flexGrow={1}>
+        {showSettings ? (
+          <Box flexDirection="column" flexGrow={1} alignItems="center" justifyContent="center">
+            <SettingsOverlay
+              onClose={() => setShowSettings(false)}
+              activeModel={activeModel}
+              activeProvider={activeProvider}
+              onSelectModel={handleSelectModel}
+              ollamaEnabled={ollamaEnabled}
+              onToggleOllama={handleToggleOllama}
+              availableProviders={availableProviders}
+              animTick={animTick}
+            />
+          </Box>
+        ) : (
+          <ChatView
+            messages={messages}
+            streaming={streaming}
+            input={input}
+            onChangeInput={handleInputChange}
+            onSend={handleSendSync}
+            spinChar={spinChar}
+            {...(activeModel !== undefined ? { model: activeModel } : {})}
           />
         )}
-
-        <Box flexDirection="column" flexGrow={1}>
-          {layout === 'settings' ? (
-            <Box flexDirection="column" flexGrow={1} alignItems="center" justifyContent="center">
-              <SettingsOverlay
-                onClose={handleCloseSettings}
-                activeModel={activeModel}
-                activeProvider={activeProvider}
-                onSelectModel={handleSelectModel}
-                ollamaEnabled={ollamaEnabled}
-                onToggleOllama={handleToggleOllama}
-                availableProviders={availableProviders}
-                animTick={animTick}
-              />
-            </Box>
-          ) : (
-            <ChatView
-              messages={messages}
-              streaming={streaming}
-              input={input}
-              onChangeInput={handleInputChange}
-              onSend={handleSendSync}
-              spinChar={spinChar}
-              {...(activeModel !== undefined ? { model: activeModel } : {})}
-            />
-          )}
-        </Box>
       </Box>
 
       <StatusBar
@@ -483,7 +418,6 @@ export function App({ provider, model, globalOptions: _globalOptions }: AppProps
         {...(activeModel !== undefined ? { model: activeModel } : {})}
         {...(tokenCount > 0 ? { tokens: tokenCount } : {})}
         {...(latency !== undefined ? { latency } : {})}
-        layout={layout}
         messageCount={messages.filter(m => m.role !== 'error').length}
         animTick={animTick}
       />

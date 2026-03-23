@@ -1,6 +1,7 @@
 /**
- * Settings overlay — minimal command palette: model browser, providers, settings.
+ * Settings overlay — command palette: model browser, providers, settings.
  * Triggered by typing "/" in the input field.
+ * No internal timers — receives animTick from root App.
  */
 
 import React, { useState } from 'react';
@@ -52,7 +53,6 @@ export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelect
   const [itemIdx, setItemIdx] = useState(0);
 
   const blink = animTick % BLINK.length;
-
   const category = CATS[catIdx]!.id;
   const allModels = buildModelList(availableProviders);
 
@@ -89,7 +89,6 @@ export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelect
 
   return (
     <Box flexDirection="column" borderStyle="single" borderColor="gray" alignSelf="center" width={72}>
-      {/* Header */}
       <Box paddingX={1} justifyContent="space-between">
         <Text color="cyan" bold>{'◈ SETTINGS'}</Text>
         <Text dimColor>{'[Tab] switch · [↑↓] nav · [Enter] select · [Esc] close'}</Text>
@@ -97,7 +96,6 @@ export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelect
       <Text dimColor>{' ' + hLine}</Text>
 
       <Box flexDirection="row">
-        {/* Left nav */}
         <Box flexDirection="column" width={14} paddingX={1}>
           {CATS.map((c, i) => (
             <Box key={c.id}>
@@ -110,23 +108,10 @@ export function SettingsOverlay({ onClose, activeModel, activeProvider, onSelect
           <Text dimColor>{'[m/p/s]'}</Text>
         </Box>
 
-        {/* Divider */}
         <Box flexDirection="column">
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
-          <Text dimColor>{'│'}</Text>
+          {Array.from({ length: 12 }, (_, i) => <Text key={i} dimColor>{'│'}</Text>)}
         </Box>
 
-        {/* Right content */}
         <Box flexDirection="column" flexGrow={1} paddingX={1}>
           {category === 'models' && (
             <ModelsPane models={allModels} activeModel={activeModel} activeProvider={activeProvider} selectedIdx={itemIdx} blink={bl} />
