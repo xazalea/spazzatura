@@ -120,7 +120,7 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
   ],
   openrouter: [
     'meta-llama/llama-3.2-3b-instruct:free',
-    'anthropic/claude-sonnet-4-5',
+    'anthropic/claude-3-5-sonnet',
     'openai/gpt-4o',
     'google/gemini-flash-1.5',
     'deepseek/deepseek-chat',
@@ -138,19 +138,15 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
   // Amm1rr/WebAI-to-API — Google Gemini web session proxy
   webai: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.0-pro'],
   // justlovemaki/AIClient-2-API — multi-provider proxy
-  aiclient: ['Grok-3', 'Grok-4', 'claude-sonnet-4-5', 'gemini-3.0-pro', 'gemini-3.5-flash', 'Qwen3-Coder-Plus', 'Kimi-K2', 'MiniMax-M2'],
+  aiclient: ['claude-3-5-sonnet-20241022', 'gemini-1.5-pro', 'Qwen3-Coder-Plus', 'Kimi-K2'],
   // wangshengithub/FREEGLM — Zhipu open.bigmodel.cn proxy
   freeglm: ['glm-4-flash', 'glm-4-air', 'glm-4'],
   // xiaoY233/GLM-Free-API — GLM alternative proxy
   'glm-free': ['glm-4', 'glm-4-plus', 'glm-4-flash'],
   // xiangsx/gpt4free-ts — gpt4free TypeScript server
-  'gpt4free-enhanced': [
-    'gpt-4', 'gpt-4-all', 'gpt-3.5-turbo',
-    'claude-1-100k', 'claude-2-100k',
-    'llama-2-70b', 'mixtral-8x7b', 'qwen-72b',
-  ],
+  'gpt4free-enhanced': ['gpt-4', 'gpt-3.5-turbo'],
   // aledipa/Free-GPT4-WEB-API — Python Flask GPT-4 proxy
-  'free-gpt4-web': ['gpt-4', 'gpt-4o', 'deepseek-r1'],
+  'free-gpt4-web': ['gpt-4', 'gpt-4o'],
   'glm-free-xiaoY': ['glm-4', 'glm-4-flash', 'glm-4-plus'],
 };
 
@@ -489,7 +485,8 @@ export function getDefaultRoutingConfig(): RoutingConfig {
   // Priority: working providers first — ollama (local), then submodule services, then paid
   return {
     strategy: 'failover',
-    failoverOrder: ['qwen', 'glm', 'glm-free', 'glm-free-xiaoY', 'minimax', 'freeglm', 'chat2api', 'gpt4free', 'gpt4free-enhanced', 'free-gpt4-web', 'aiclient', 'webai', 'claude-free', 'openrouter', 'openai', 'anthropic'],
+    // No-auth-required providers first; cookie-based providers after; paid APIs last
+    failoverOrder: ['gpt4free', 'freeglm', 'gpt4free-enhanced', 'free-gpt4-web', 'webai', 'aiclient', 'ollama', 'qwen', 'glm', 'glm-free', 'glm-free-xiaoY', 'minimax', 'chat2api', 'claude-free', 'openrouter', 'openai', 'anthropic'],
     featureBased: {
       tts: 'openai',
       stt: 'openai',

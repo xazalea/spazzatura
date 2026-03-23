@@ -26,7 +26,6 @@ import type { GlobalOptions } from '../index.js';
 import { ChatView } from './chat-view.js';
 import { SettingsOverlay } from './settings-overlay.js';
 import type { AvailableProvider } from './settings-overlay.js';
-import { StatusBar } from './status-bar.js';
 import { Header } from './header.js';
 
 export interface Message {
@@ -108,7 +107,7 @@ function buildRouter(provider?: string, ollamaEnabled = false): ProviderRouter {
   const filtered = ollamaEnabled ? available : available.filter(p => p.type !== 'ollama');
   const providerConfigs = [];
   for (const p of filtered) {
-    if (p.configured || p.free) {
+    if (p.configured) {
       try { providerConfigs.push(getDefaultProviderConfig(p.type)); } catch { /* skip */ }
     }
   }
@@ -145,6 +144,63 @@ function resolveFileRefs(text: string): string {
     } catch { /* fall through */ }
     return match;
   });
+}
+
+// ── Ollama auto-start (secondary/non-critical tasks only) ────────────────────
+
+let ollamaRouter: ProviderRouter | null = null;
+
+async function startOllamaIfNeeded(): Promise<void> {
+  try {
+    // Check if Ollama HTTP API is already up
+    const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+    if (resp.ok) {
+      buildOllamaRouter();
+      return;
+    }
+  } catch { /* not running yet — try to spawn */ }
+
+  try {
+    const { spawn } = await import('child_process');
+    const proc = spawn('ollama', ['serve'], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    proc.unref();
+
+    // Wait up to 8 seconds for Ollama to start
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 800));
+      try {
+        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+        if (r.ok) { buildOllamaRouter(); return; }
+      } catch { /* keep waiting */ }
+    }
+  } catch { /* ollama not installed — skip silently */ }
+}
+
+function buildOllamaRouter(): void {
+  try {
+    const cfg = getDefaultProviderConfig('ollama');
+    ollamaRouter = createRouter([cfg], getDefaultRoutingConfig());
+  } catch { /* ignore */ }
+}
+
+/**
+ * Classify a message as "non-critical" (safe to delegate to Ollama).
+ * Only returns true if message is clearly conversational/suggestion-based.
+ */
+function isNonCritical(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Reject if message looks like a coding task
+  if (/\bcode\b|\bimplement\b|\bwrite\b|\bfix\b|\bbug\b|\brefactor\b|\bdebug\b|\berror\b|\btest\b/.test(lower)) return false;
+  if (/```|class |function |const |import |export |async /.test(text)) return false;
+  // Accept if short and conversational
+  const wordCount = text.trim().split(/\s+/).length;
+  if (wordCount > 30) return false;
+  if (/^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|what|how|why|who|when|where|suggest|opinion|think|idea|help|advice|recommend)/i.test(lower)) return true;
+  return false;
 }
 
 async function runBackgroundAuth(onTokenFound: (service: string) => void): Promise<void> {
@@ -217,10 +273,13 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     if (r !== undefined) {
       setRouter(r);
       if (activeProvider === undefined) {
-        const first = available.find(p => (p.configured || p.free) && p.type !== 'ollama');
+        const first = available.find(p => p.configured && p.type !== 'ollama');
         if (first) setActiveProvider(first.type);
       }
     }
+
+    // Start Ollama in background (non-critical assistant tasks)
+    void startOllamaIfNeeded();
 
     if (!authRunning.current) {
       authRunning.current = true;
@@ -310,14 +369,23 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       return;
     }
 
+    // Use Ollama for non-critical (conversational) tasks when available
+    const useOllama = ollamaEnabled && ollamaRouter !== null && isNonCritical(trimmed);
+    const activeRouter = useOllama ? ollamaRouter! : router;
+    const routerProvider = useOllama ? 'ollama' : activeProvider;
+
     const resolved = resolveFileRefs(trimmed);
     const userMsg: Message = { role: 'user', content: trimmed };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setStreaming(true);
 
+    const systemPrompt = useOllama
+      ? 'You are Spazzatura, a helpful AI assistant. Be concise and friendly.'
+      : 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.';
+
     const provMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.' },
+      { role: 'system', content: systemPrompt },
       ...messages.filter(m => m.role !== 'error').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: resolved },
     ];
@@ -326,8 +394,8 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     const t0 = Date.now();
 
     try {
-      const opts = { ...(activeModel !== undefined ? { model: activeModel } : {}) };
-      for await (const chunk of router.stream(provMsgs, opts)) {
+      const opts = { ...(activeModel !== undefined && !useOllama ? { model: activeModel } : {}) };
+      for await (const chunk of activeRouter.stream(provMsgs, opts)) {
         if (chunk.delta) content += chunk.delta;
         if (chunk.done) break;
       }
@@ -340,8 +408,8 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
 
       const updatedState: SharedState = {
         messages: finalMessages,
-        provider: activeProvider,
-        model: activeModel,
+        provider: routerProvider,
+        model: useOllama ? undefined : activeModel,
         tokens: estimateTokens(finalMessages),
         ollamaEnabled,
         latency: elapsed,
@@ -376,11 +444,17 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
 
   const termRows = process.stdout.rows ?? 24;
 
+  const msgCount = messages.filter(m => m.role !== 'error').length;
+
   return (
     <Box flexDirection="column" height={termRows}>
       <Header
         streaming={streaming}
         providerLabel={activeProvider}
+        model={activeModel}
+        tokens={tokenCount > 0 ? tokenCount : undefined}
+        messageCount={msgCount > 0 ? msgCount : undefined}
+        ollamaActive={ollamaEnabled && ollamaRouter !== null}
         animTick={animTick}
         tickerPos={tickerPos}
         spinChar={spinChar}
@@ -408,19 +482,11 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
             onChangeInput={handleInputChange}
             onSend={handleSendSync}
             spinChar={spinChar}
+            provider={activeProvider}
             {...(activeModel !== undefined ? { model: activeModel } : {})}
           />
         )}
       </Box>
-
-      <StatusBar
-        {...(activeProvider !== undefined ? { provider: activeProvider } : {})}
-        {...(activeModel !== undefined ? { model: activeModel } : {})}
-        {...(tokenCount > 0 ? { tokens: tokenCount } : {})}
-        {...(latency !== undefined ? { latency } : {})}
-        messageCount={messages.filter(m => m.role !== 'error').length}
-        animTick={animTick}
-      />
     </Box>
   );
 }

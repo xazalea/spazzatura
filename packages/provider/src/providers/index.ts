@@ -228,7 +228,7 @@ export function detectAvailableProviders(): Array<{ type: ExtendedProviderType; 
     },
     {
       type: 'chat2api',
-      configured: true, // Works without cookie for public instances
+      configured: !!process.env['CHAT2API_COOKIE'], // Requires auth cookie
       free: true,
     },
     {
