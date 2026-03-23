@@ -1,7 +1,5 @@
 /**
- * Chat panel — polished, minimal message display.
- * TTE effects play externally; content here is final plain text.
- * No internal timers.
+ * Chat panel — ┤ role  HH:MM ├── message headers, ASCII welcome screen.
  */
 
 import React from 'react';
@@ -18,91 +16,108 @@ export interface ChatViewProps {
   readonly model?: string;
   readonly provider?: string;
   readonly spinChar: string;
+  readonly animTick: number;
 }
 
 function hhmm(): string {
   const d = new Date();
-  return [d.getHours(), d.getMinutes()]
-    .map(n => String(n).padStart(2, '0'))
-    .join(':');
+  return [d.getHours(), d.getMinutes()].map(n => String(n).padStart(2, '0')).join(':');
 }
 
-// ── Message bubbles ───────────────────────────────────────────────────────────
-
-function UserMsg({ m }: { m: Message }): React.ReactElement {
+function MsgHeader({ label, color, cols }: { label: string; color: string; cols: number }): React.ReactElement {
+  // ┤ label  HH:MM ├────
+  const time = hhmm();
+  const inner = ` ${label}  ${time} `;
+  const lineLen = Math.max(0, cols - inner.length - 4);
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={2}>
-      <Box gap={2} marginBottom={0}>
-        <Text color="green" bold>you</Text>
-        <Text color="gray" dimColor>{hhmm()}</Text>
-      </Box>
-      <Box paddingLeft={2}>
+    <Box>
+      <Text dimColor>{'  ┤ '}</Text>
+      <Text color={color as string} bold>{label}</Text>
+      <Text dimColor>{'  ' + time + ' ├'}</Text>
+      <Text dimColor>{'─'.repeat(Math.max(0, lineLen))}</Text>
+    </Box>
+  );
+}
+
+function UserMsg({ m, cols }: { m: Message; cols: number }): React.ReactElement {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <MsgHeader label="you" color="green" cols={cols} />
+      <Box paddingLeft={4}>
         <Text wrap="wrap">{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-function AiMsg({ m, model }: { m: Message; model?: string }): React.ReactElement {
-  const label = (model ?? 'spaz').slice(0, 28);
+function AiMsg({ m, model, cols }: { m: Message; model?: string; cols: number }): React.ReactElement {
+  const label = (model ?? 'spaz').slice(0, 24);
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={2}>
-      <Box gap={2} marginBottom={0}>
-        <Text color="cyan" bold>{label}</Text>
-        <Text color="gray" dimColor>{hhmm()}</Text>
-      </Box>
-      <Box paddingLeft={2}>
+    <Box flexDirection="column" marginBottom={1}>
+      <MsgHeader label={label} color="cyan" cols={cols} />
+      <Box paddingLeft={4}>
         <Text wrap="wrap" color="white">{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-function ErrMsg({ m }: { m: Message }): React.ReactElement {
+function ErrMsg({ m, cols }: { m: Message; cols: number }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={2}>
-      <Box gap={2} marginBottom={0}>
-        <Text color="red" bold>error</Text>
-        <Text color="gray" dimColor>{hhmm()}</Text>
-      </Box>
-      <Box paddingLeft={2}>
+    <Box flexDirection="column" marginBottom={1}>
+      <MsgHeader label="error" color="red" cols={cols} />
+      <Box paddingLeft={4}>
         <Text wrap="wrap" color="red" dimColor>{m.content}</Text>
       </Box>
     </Box>
   );
 }
 
-// ── Empty state ───────────────────────────────────────────────────────────────
+// ── Welcome screen ────────────────────────────────────────────────────────────
+
+const LOGO_COLORS = ['cyan', 'cyanBright', 'blueBright', 'white', 'cyan'] as const;
+const LOGO_LETTERS = ['S', 'P', 'A', 'Z'] as const;
 
 const HINTS: [string, string][] = [
-  ['tab',          'switch model'],
-  ['^L',           'toggle local'],
-  ['^R',           'reset chat'],
-  ['@path/to/file','inject file'],
-  ['/save',        'save chat'],
-  ['/load <name>', 'load chat'],
-  ['/run <cmd>',   'run command'],
+  ['[tab]',         'switch model'],
+  ['[@file]',       'inject file'],
+  ['[^L]',          'toggle local'],
+  ['[^R]',          'reset chat'],
+  ['[^C]',          'quit'],
+  ['[/save]',       'save chat'],
 ];
 
-function EmptyState(): React.ReactElement {
+function WelcomeScreen({ animTick, cols }: { animTick: number; cols: number }): React.ReactElement {
+  const lineW = Math.min(cols - 8, 60);
   return (
-    <Box flexDirection="column" paddingX={4} paddingTop={2} gap={0}>
-      <Box marginBottom={1}>
-        <Text color="white" bold>good ai code for u</Text>
+    <Box flexDirection="column" paddingX={4} paddingTop={2}>
+      {/* Animated logo */}
+      <Box marginBottom={1} gap={0}>
+        {LOGO_LETTERS.map((l, i) => (
+          <Text key={l} color={LOGO_COLORS[(animTick + i) % LOGO_COLORS.length] as string} bold>
+            {i > 0 ? ' ░ ' + l : '░ ' + l}
+          </Text>
+        ))}
+        <Text bold> ░</Text>
+        <Text dimColor>{'     free ai, no limits'}</Text>
       </Box>
-      {HINTS.map(([key, desc]) => (
-        <Box key={key} gap={0}>
-          <Text color="cyan">{key.padEnd(20)}</Text>
-          <Text dimColor>{desc}</Text>
-        </Box>
-      ))}
+
+      <Box marginBottom={1}>
+        <Text dimColor>{'─'.repeat(lineW)}</Text>
+      </Box>
+
+      {/* Hints in 2 columns */}
+      <Box flexDirection="column">
+        {HINTS.map(([key, desc]) => (
+          <Box key={key} gap={0}>
+            <Text color="cyan">{key.padEnd(12)}</Text>
+            <Text dimColor>{'  ' + desc}</Text>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }
-
-// ── Spinner ───────────────────────────────────────────────────────────────────
-
-const FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'] as const;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -114,41 +129,39 @@ export function ChatView({
   onSend,
   model,
   spinChar,
+  animTick,
 }: ChatViewProps): React.ReactElement {
-  const termRows  = process.stdout.rows ?? 24;
-  const termCols  = process.stdout.columns ?? 80;
+  const termRows = process.stdout.rows ?? 24;
+  const cols = process.stdout.columns ?? 80;
 
-  // Reserve rows: topbar (2) + input area (3) = 5; each message ~3 rows
-  const maxVisible = Math.max(2, Math.floor((termRows - 5) / 3));
+  const maxVisible = Math.max(2, Math.floor((termRows - 7) / 4));
   const visible = messages.slice(-maxVisible);
-
-  const frame = (FRAMES as readonly string[]).includes(spinChar)
-    ? spinChar
-    : '⠋';
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* ── Message area ─────────────────────────────────────────────────── */}
+      {/* ── Message area ──────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexGrow={1} overflowY="hidden">
-        {messages.length === 0 && !streaming && <EmptyState />}
+        {messages.length === 0 && !streaming && (
+          <WelcomeScreen animTick={animTick} cols={cols} />
+        )}
 
         {visible.map((m, i) => {
-          if (m.role === 'user')  return <UserMsg key={`u${i}`} m={m} />;
-          if (m.role === 'error') return <ErrMsg  key={`e${i}`} m={m} />;
-          return                         <AiMsg   key={`a${i}`} m={m} model={model} />;
+          if (m.role === 'user')  return <UserMsg  key={`u${i}`} m={m} cols={cols} />;
+          if (m.role === 'error') return <ErrMsg   key={`e${i}`} m={m} cols={cols} />;
+          return                         <AiMsg    key={`a${i}`} m={m} model={model} cols={cols} />;
         })}
 
         {streaming && (
-          <Box paddingX={4} gap={1} marginBottom={1}>
-            <Text color="cyan">{frame}</Text>
+          <Box paddingLeft={4} gap={1} marginBottom={1}>
+            <Text color="cyan">{spinChar}</Text>
             <Text dimColor>thinking</Text>
           </Box>
         )}
       </Box>
 
-      {/* ── Input ────────────────────────────────────────────────────────── */}
-      <Box paddingX={2} paddingBottom={1}>
-        <Text dimColor>{'─'.repeat(termCols - 4)}</Text>
+      {/* ── Input ─────────────────────────────────────────────────────────── */}
+      <Box paddingX={2}>
+        <Text dimColor>{'─'.repeat(cols - 4)}</Text>
       </Box>
       <Box paddingX={4} paddingBottom={1}>
         <Text color="cyan">{'› '}</Text>

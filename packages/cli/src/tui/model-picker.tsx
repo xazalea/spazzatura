@@ -14,10 +14,13 @@ interface Entry {
   isLocal: boolean;
 }
 
+const LOGO_COLORS = ['cyan', 'cyanBright', 'blueBright', 'white', 'cyan'] as const;
+const LOGO_LETTERS = ['S', 'P', 'A', 'Z'] as const;
+
 const PROVIDER_ORDER: ExtendedProviderType[] = [
-  'gpt4free', 'freeglm', 'gpt4free-enhanced', 'free-gpt4-web',
+  'freeglm', 'qwen', 'glm', 'minimax', 'gemini', 'claude-free', 'chat2api',
+  'glm-free', 'glm-free-xiaoY', 'gpt4free', 'gpt4free-enhanced', 'free-gpt4-web',
   'webai', 'aiclient',
-  'qwen', 'glm', 'glm-free', 'glm-free-xiaoY', 'minimax', 'chat2api', 'claude-free',
   'openrouter', 'openai', 'anthropic',
 ];
 
@@ -55,6 +58,7 @@ export interface ModelPickerProps {
   readonly activeModel?: string;
   readonly localEnabled: boolean;
   readonly onToggleLocal: () => void;
+  readonly animTick?: number;
 }
 
 export function ModelPicker({
@@ -63,6 +67,7 @@ export function ModelPicker({
   activeModel,
   localEnabled,
   onToggleLocal,
+  animTick = 0,
 }: ModelPickerProps): React.ReactElement {
   const entries = buildEntries();
   const [idx, setIdx] = useState(() => {
@@ -102,15 +107,22 @@ export function ModelPicker({
   const firstLocalIdx = entries.findIndex(e => e.isLocal);
 
   return (
-    <Box flexDirection="column" width={W}>
+    <Box flexDirection="column" width={W} borderStyle="single" borderColor="gray">
       {/* Header */}
-      <Box paddingX={2} paddingTop={1} paddingBottom={0} justifyContent="space-between">
-        <Text color="white" bold>models</Text>
-        <Text dimColor>↑↓ · ↵ select · esc</Text>
+      <Box paddingX={1} paddingTop={0} paddingBottom={0} justifyContent="space-between">
+        <Box gap={0}>
+          {LOGO_LETTERS.map((l, i) => (
+            <Text key={l} color={LOGO_COLORS[(animTick + i) % LOGO_COLORS.length] as string} bold>
+              {i > 0 ? '·' + l : l}
+            </Text>
+          ))}
+          <Text dimColor>{' models'}</Text>
+        </Box>
+        <Text dimColor>↑↓ · ↵ · esc</Text>
       </Box>
 
-      <Box paddingX={2} paddingBottom={0}>
-        <Text dimColor>{'─'.repeat(innerW)}</Text>
+      <Box paddingX={1} paddingBottom={0}>
+        <Text dimColor>{'─'.repeat(innerW + 2)}</Text>
       </Box>
 
       {/* Model list */}
@@ -123,11 +135,11 @@ export function ModelPicker({
         return (
           <React.Fragment key={e.provider + ':' + e.model}>
             {showSep && (
-              <Box paddingX={2}>
-                <Text dimColor>{'─'.repeat(innerW)}</Text>
+              <Box paddingX={1}>
+                <Text dimColor>{'─'.repeat(innerW + 2)}</Text>
               </Box>
             )}
-            <Box paddingX={2} gap={1}>
+            <Box paddingX={1} gap={1}>
               {/* Cursor */}
               <Text color="cyan">{isSel ? '›' : ' '}</Text>
 
@@ -155,7 +167,7 @@ export function ModelPicker({
 
       {/* Scroll hint */}
       {entries.length > VIEW && (
-        <Box paddingX={2}>
+        <Box paddingX={1}>
           <Text dimColor>
             {scrollOffset > 0 ? '↑ ' : '  '}
             {String(entries.length) + ' models'}
@@ -164,8 +176,8 @@ export function ModelPicker({
         </Box>
       )}
 
-      <Box paddingX={2} paddingBottom={1}>
-        <Text dimColor>{'─'.repeat(innerW)}</Text>
+      <Box paddingX={1} paddingBottom={0}>
+        <Text dimColor>{'─'.repeat(innerW + 2)}</Text>
       </Box>
     </Box>
   );

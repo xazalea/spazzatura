@@ -18,6 +18,7 @@ import { AIClientProvider } from './aiclient.js';
 import { FreeGLMProvider } from './freeglm.js';
 import { GLMFreeProvider } from './glm-free.js';
 import { GPT4FreeEnhancedProvider } from './gpt4free-enhanced.js';
+import { GeminiProvider } from './gemini.js';
 import type { Provider, ProviderConfig, ExtendedProviderType } from '../types.js';
 
 // Re-export provider classes
@@ -36,6 +37,8 @@ export { AIClientProvider } from './aiclient.js';
 export { FreeGLMProvider } from './freeglm.js';
 export { GLMFreeProvider } from './glm-free.js';
 export { GPT4FreeEnhancedProvider } from './gpt4free-enhanced.js';
+export { GeminiProvider } from './gemini.js';
+export type { GeminiConfig } from './gemini.js';
 
 // Re-export types
 export type { MiniMaxConfig, MiniMaxVoice, TTSOptions, STTOptions } from './minimax.js';
@@ -90,6 +93,7 @@ export type ProviderMap = {
   freeglm: FreeGLMProvider;
   'glm-free': GLMFreeProvider;
   'gpt4free-enhanced': GPT4FreeEnhancedProvider;
+  gemini: GeminiProvider;
 };
 
 /**
@@ -162,6 +166,8 @@ export function createProvider(
         ...(config as unknown as Partial<import('./glm-free.js').GLMFreeConfig>),
         baseUrl: config.baseUrl ?? 'http://localhost:3049',
       });
+    case 'gemini':
+      return new GeminiProvider(config as unknown as Partial<import('./gemini.js').GeminiConfig>);
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }
@@ -269,6 +275,11 @@ export function detectAvailableProviders(): Array<{ type: ExtendedProviderType; 
     {
       type: 'glm-free-xiaoY',
       configured: !!(process.env['GLM_FREE_COOKIE'] || process.env['GLM_XIAOYI_COOKIE']),
+      free: true,
+    },
+    {
+      type: 'gemini',
+      configured: !!process.env['GEMINI_COOKIE'],
       free: true,
     },
   ];

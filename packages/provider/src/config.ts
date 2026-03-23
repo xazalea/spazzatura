@@ -148,6 +148,7 @@ const DEFAULT_MODELS: Record<ExtendedProviderType, string[]> = {
   // aledipa/Free-GPT4-WEB-API — Python Flask GPT-4 proxy
   'free-gpt4-web': ['gpt-4', 'gpt-4o'],
   'glm-free-xiaoY': ['glm-4', 'glm-4-flash', 'glm-4-plus'],
+  gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
 };
 
 /**
@@ -351,6 +352,17 @@ const DEFAULT_CAPABILITIES: Record<ExtendedProviderType, ProviderCapabilities> =
     embedding: false,
     functionCalling: false,
     maxContextLength: 32000,
+  },
+  gemini: {
+    chat: true,
+    streaming: true,
+    vision: true,
+    tts: false,
+    stt: false,
+    imageGeneration: false,
+    embedding: false,
+    functionCalling: false,
+    maxContextLength: 1000000,
   },
 };
 

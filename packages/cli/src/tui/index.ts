@@ -27,11 +27,6 @@ type TTEEvent =
 
 export async function startTUI(options: TUIOptions): Promise<void> {
   try {
-    // ── Start vendor services in background ───────────────────────────────────
-    void import('../services/manager.js').then(({ startAllServices }) => {
-      void startAllServices();
-    }).catch(() => { /* services unavailable — ignore */ });
-
     // ── TTE availability (fire-and-forget install if missing) ─────────────────
     const tteOk = await checkTte();
     if (!tteOk) void autoInstallTte();

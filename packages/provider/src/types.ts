@@ -38,7 +38,8 @@ export type ExtendedProviderType =
   | 'glm-free'
   | 'gpt4free-enhanced'
   | 'free-gpt4-web'
-  | 'glm-free-xiaoY';
+  | 'glm-free-xiaoY'
+  | 'gemini';
 
 /**
  * Content part for multimodal messages

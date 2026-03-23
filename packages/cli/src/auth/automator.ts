@@ -303,6 +303,7 @@ const FLOWS: Record<string, ServiceFn> = {
 export async function runAllAuth(
   onProgress?: (result: AuthResult) => void,
   services?: string[],
+  onStart?: (service: string) => void,
 ): Promise<AuthReport> {
   const toRun = services ?? Object.keys(FLOWS);
   const results: AuthResult[] = [];
@@ -311,6 +312,7 @@ export async function runAllAuth(
   try {
     browser = await launchBrowser(true); // ALWAYS headless in background
     for (const svc of toRun) {
+      onStart?.(svc);
       const fn = FLOWS[svc];
       if (!fn) { const r = { service: svc, success: false, error: 'unknown' }; results.push(r); onProgress?.(r); continue; }
       const result = await fn(browser, 20000).catch(e => ({ service: svc, success: false, error: String(e) })); // 20s per service

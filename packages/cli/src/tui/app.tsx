@@ -2,6 +2,8 @@
  * TUI App — Ink-based terminal interface with TTE effect integration.
  *
  * Architecture:
+ *   - Phase 'booting': runs auth, shows BootScreen with live per-provider status.
+ *   - Phase 'ready': shows chat UI with animated Header.
  *   - Ink handles layout, input, chrome, and spinner while AI response buffers.
  *   - When a full AI response arrives, App calls onTTERequest(response, newState).
  *   - The caller (index.ts) unmounts Ink, plays TTE, then remounts with updated state.
@@ -26,7 +28,9 @@ import type { ProviderRouter } from '@spazzatura/provider';
 import type { GlobalOptions } from '../index.js';
 import { ChatView } from './chat-view.js';
 import { ModelPicker } from './model-picker.js';
-import { TopBar } from './top-bar.js';
+import { Header } from './header.js';
+import { BootScreen } from './boot-screen.js';
+import type { ProviderStatus } from './boot-screen.js';
 import type { AvailableProvider } from './settings-overlay.js';
 
 export interface Message {
@@ -71,7 +75,6 @@ export function loadSettings(): { localEnabled: boolean } {
   try {
     if (existsSync(SETTINGS_FILE)) {
       const raw = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown>;
-      // Support both old key (ollamaEnabled) and new key (localEnabled)
       return { localEnabled: !!(raw['localEnabled'] ?? raw['ollamaEnabled']) };
     }
   } catch { /* ignore */ }
@@ -105,29 +108,42 @@ function loadStoredTokens(): void {
 
 // ── Provider/router helpers ───────────────────────────────────────────────────
 
-function buildRouter(provider?: string, localEnabled = false): ProviderRouter {
+/**
+ * Build router synchronously — native providers don't need health checks.
+ * All providers that have their cookie set are included immediately.
+ */
+interface RouterResult {
+  router: ProviderRouter;
+  firstType: string;
+  firstModel: string;
+}
+
+function buildRouter(preferredProvider?: string, localEnabled = false): RouterResult | null {
   const available = detectAvailableProviders();
-  const filtered = localEnabled ? available : available.filter(p => p.type !== 'ollama');
+  const filtered = available.filter(p => p.configured && (localEnabled || p.type !== 'ollama'));
+
   const providerConfigs = [];
   for (const p of filtered) {
-    if (p.configured) {
-      try { providerConfigs.push(getDefaultProviderConfig(p.type)); } catch { /* skip */ }
-    }
+    try { providerConfigs.push(getDefaultProviderConfig(p.type)); } catch { /* skip */ }
   }
-  if (provider !== undefined && provider !== 'auto') {
-    const idx = providerConfigs.findIndex(p => p.name === provider);
+
+  // Prioritize explicitly chosen provider
+  if (preferredProvider !== undefined && preferredProvider !== 'auto') {
+    const idx = providerConfigs.findIndex(p => p.name === preferredProvider);
     if (idx > 0) {
       const [prov] = providerConfigs.splice(idx, 1);
       if (prov !== undefined) providerConfigs.unshift(prov);
     }
   }
-  try {
-    return createRouter(providerConfigs, getDefaultRoutingConfig());
-  } catch {
-    const safeTypes = ['gpt4free', 'freeglm', 'gpt4free-enhanced', 'free-gpt4-web', 'webai', 'aiclient'];
-    const safe = providerConfigs.filter(c => safeTypes.includes(c.type));
-    return createRouter(safe.length > 0 ? safe : providerConfigs.slice(0, 1), getDefaultRoutingConfig());
-  }
+
+  if (providerConfigs.length === 0) return null;
+
+  const first = providerConfigs[0]!;
+  return {
+    router: createRouter(providerConfigs, getDefaultRoutingConfig()),
+    firstType: first.type ?? first.name ?? 'unknown',
+    firstModel: first.defaultModel ?? first.models?.[0] ?? 'default',
+  };
 }
 
 function estimateTokens(messages: Message[]): number {
@@ -149,61 +165,18 @@ function resolveFileRefs(text: string): string {
   });
 }
 
-// ── Local (Ollama) secondary router ──────────────────────────────────────────
+// ── Local (Ollama) auto-start ─────────────────────────────────────────────────
 
-let localRouter: ProviderRouter | null = null;
-
-async function startLocalIfNeeded(): Promise<void> {
+async function startOllamaIfNeeded(): Promise<void> {
   try {
-    const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
-    if (resp.ok) { buildLocalRouter(); return; }
+    const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+    if (r.ok) return;
   } catch { /* not running */ }
   try {
     const { spawn } = await import('child_process');
     const proc = spawn('ollama', ['serve'], { stdio: 'ignore', detached: true });
     proc.unref();
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 800));
-      try {
-        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
-        if (r.ok) { buildLocalRouter(); return; }
-      } catch { /* keep waiting */ }
-    }
   } catch { /* ollama not installed */ }
-}
-
-function buildLocalRouter(): void {
-  try {
-    const cfg = getDefaultProviderConfig('ollama');
-    localRouter = createRouter([cfg], getDefaultRoutingConfig());
-  } catch { /* ignore */ }
-}
-
-/** Non-critical classifier: short, conversational, no code indicators → use local */
-function isNonCritical(text: string): boolean {
-  const lower = text.toLowerCase();
-  if (/\bcode\b|\bimplement\b|\bwrite\b|\bfix\b|\bbug\b|\brefactor\b|\bdebug\b|\berror\b|\btest\b/.test(lower)) return false;
-  if (/```|class |function |const |import |export |async /.test(text)) return false;
-  if (text.trim().split(/\s+/).length > 30) return false;
-  return /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|sure|what|how|why|who|when|where|suggest|opinion|think|idea|help|advice|recommend)/i.test(lower);
-}
-
-// ── Background auth ───────────────────────────────────────────────────────────
-
-async function runBackgroundAuth(onTokenFound: (service: string) => void): Promise<void> {
-  const stored = existsSync(AUTH_FILE)
-    ? (() => { try { return JSON.parse(readFileSync(AUTH_FILE, 'utf-8')) as Record<string, unknown>; } catch { return {}; } })()
-    : {};
-  const needsAuth = ['qwen', 'chatglm', 'minimax', 'gemini'].filter(s => !stored[s]);
-  if (needsAuth.length === 0) return;
-  try {
-    const { runAllAuth } = await import('../auth/automator.js');
-    await runAllAuth(
-      (result) => { if (result.success) onTokenFound(result.service); },
-      needsAuth,
-    );
-  } catch { /* playwright unavailable */ }
 }
 
 // ── Animation constants ───────────────────────────────────────────────────────
@@ -211,10 +184,24 @@ async function runBackgroundAuth(onTokenFound: (service: string) => void): Promi
 const SPIN_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 const ANIM_PERIOD = 8;
 
+// ── Boot providers config ─────────────────────────────────────────────────────
+
+const BOOT_PROVIDERS: ProviderStatus[] = [
+  { service: 'qwen',    label: 'Qwen (Tongyi)',     state: 'pending' },
+  { service: 'chatglm', label: 'ChatGLM (Zhipu)',   state: 'pending' },
+  { service: 'minimax', label: 'MiniMax (Hailuo)',  state: 'pending' },
+  { service: 'gemini',  label: 'Gemini (Google)',   state: 'pending' },
+  { service: 'claude',  label: 'Claude (Anthropic)', state: 'pending' },
+];
+
 // ── Main App Component ────────────────────────────────────────────────────────
 
 export function App({ provider, model, initialState, onTTERequest, onTTEError, onExit }: AppProps): React.ReactElement {
   const { exit } = useApp();
+
+  // Phase: booting = auth screen, ready = chat UI
+  const [phase,          setPhase]          = useState<'booting' | 'ready'>('booting');
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(BOOT_PROVIDERS);
 
   const [messages,       setMessages]       = useState<Message[]>(initialState?.messages ?? []);
   const [input,          setInput]          = useState('');
@@ -226,17 +213,16 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
   const [activeProvider, setActiveProvider] = useState<string | undefined>(initialState?.provider ?? provider);
   const [activeModel,    setActiveModel]    = useState<string | undefined>(initialState?.model ?? model);
   const [localEnabled,   setLocalEnabled]   = useState(initialState?.localEnabled ?? loadSettings().localEnabled);
-  const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
   const [localReady,     setLocalReady]     = useState(false);
+  const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
 
   const [animTick,  setAnimTick]  = useState(0);
   const [spinTick,  setSpinTick]  = useState(0);
   const [tickerPos, setTickerPos] = useState(0);
 
-  const authRunning   = useRef(false);
-  const initialized   = useRef(false);
+  const initialized = useRef(false);
 
-  // Single root animation clock — no per-component timers
+  // Single root animation clock
   useEffect(() => {
     const slow   = setInterval(() => setAnimTick(t => (t + 1) % ANIM_PERIOD), 500);
     const ticker = setInterval(() => setTickerPos(p => p + 1), 130);
@@ -251,7 +237,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
 
   const spinChar = SPIN_CHARS[spinTick] ?? '⠋';
 
-  // One-time initialization
+  // One-time initialization — run auth then transition to ready
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -261,28 +247,41 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     const available = detectAvailableProviders();
     setAvailableProviders(available);
 
-    let r: ProviderRouter | undefined;
-    try { r = buildRouter(provider, localEnabled); } catch { /* ignore */ }
-    if (r !== undefined) {
-      setRouter(r);
-      if (activeProvider === undefined) {
-        const first = available.find(p => p.configured && p.type !== 'ollama');
-        if (first) setActiveProvider(first.type);
+    // Start Ollama in background
+    void startOllamaIfNeeded().then(() => setLocalReady(true)).catch(() => {});
+
+    // Run auth with per-provider callbacks, then transition to ready
+    void (async () => {
+      try {
+        const { runAllAuth } = await import('../auth/automator.js');
+        await runAllAuth(
+          (result) => {
+            if (result.success) loadStoredTokens(); // update env vars as each completes
+            setProviderStatuses(prev => prev.map(p =>
+              p.service === result.service
+                ? { ...p, state: result.success ? 'ready' : 'failed' }
+                : p
+            ));
+          },
+          ['qwen', 'chatglm', 'minimax', 'gemini', 'claude'],
+          (service) => {
+            setProviderStatuses(prev => prev.map(p =>
+              p.service === service ? { ...p, state: 'running' } : p
+            ));
+          },
+        );
+      } catch { /* playwright unavailable — proceed anyway */ }
+
+      // Auth done — reload tokens and build router
+      loadStoredTokens();
+      const result = buildRouter(provider, localEnabled);
+      if (result) {
+        setRouter(result.router);
+        if (activeProvider === undefined) setActiveProvider(result.firstType);
+        if (activeModel === undefined) setActiveModel(result.firstModel);
       }
-    }
-
-    // Start local (Ollama) in background
-    void startLocalIfNeeded().then(() => {
-      if (localRouter !== null) setLocalReady(true);
-    });
-
-    if (!authRunning.current) {
-      authRunning.current = true;
-      void runBackgroundAuth(() => {
-        loadStoredTokens();
-        try { setRouter(buildRouter(provider, localEnabled)); } catch { /* ignore */ }
-      });
-    }
+      setPhase('ready');
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -292,7 +291,11 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
 
   // ── Key bindings ─────────────────────────────────────────────────────────
   useInput((_inputChar, key) => {
-    if (showPicker) return; // ModelPicker handles its own input
+    if (phase === 'booting') {
+      if (key.ctrl && _inputChar === 'c') { exit(); onExit(); }
+      return;
+    }
+    if (showPicker) return;
     if (key.escape) return;
     if (key.tab) { setShowPicker(true); return; }
     if (key.ctrl && _inputChar === 'r') { setMessages([]); setTokenCount(0); setLatency(undefined); return; }
@@ -310,8 +313,8 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     setActiveProvider(prov);
     setActiveModel(mdl);
     setShowPicker(false);
-    // Rebuild router with the chosen provider prioritized
-    try { setRouter(buildRouter(prov, localEnabled)); } catch { /* ignore */ }
+    const result = buildRouter(prov, localEnabled);
+    if (result) setRouter(result.router);
   }, [localEnabled]);
 
   const handleToggleLocal = useCallback(() => {
@@ -379,14 +382,9 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     }
 
     if (router === undefined) {
-      setMessages(prev => [...prev, { role: 'error', content: 'router not ready — please wait a moment' }]);
+      setMessages(prev => [...prev, { role: 'error', content: 'router not ready — auth is still running or no providers configured' }]);
       return;
     }
-
-    // Decide whether to use local router
-    const useLocal = localEnabled && localRouter !== null && localReady && isNonCritical(trimmed);
-    const activeRouter = useLocal ? localRouter! : router;
-    const routerProvider = useLocal ? 'local' : activeProvider;
 
     const resolved = resolveFileRefs(trimmed);
     const userMsg: Message = { role: 'user', content: trimmed };
@@ -394,12 +392,8 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     setMessages(newMessages);
     setStreaming(true);
 
-    const systemPrompt = useLocal
-      ? 'You are Spazzatura, a friendly AI assistant. Be concise.'
-      : 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.';
-
     const provMsgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: 'You are Spazzatura, an elite AI coding assistant. Be concise, accurate, and practical. Format code in markdown code blocks.' },
       ...messages.filter(m => m.role !== 'error').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: resolved },
     ];
@@ -408,20 +402,21 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
     const t0 = Date.now();
 
     try {
-      const opts = { ...(activeModel !== undefined && !useLocal ? { model: activeModel } : {}) };
-      for await (const chunk of activeRouter.stream(provMsgs, opts)) {
+      const opts = activeModel !== undefined ? { model: activeModel } : {};
+      for await (const chunk of router.stream(provMsgs, opts)) {
         if (chunk.delta) content += chunk.delta;
         if (chunk.done) break;
       }
 
       const elapsed = Date.now() - t0;
       setStreaming(false);
+      setLatency(elapsed);
 
       const finalMessages = [...newMessages, { role: 'assistant' as const, content }];
       const updatedState: SharedState = {
         messages: finalMessages,
-        provider: routerProvider,
-        model: useLocal ? 'llama3.2' : activeModel,
+        provider: activeProvider,
+        model: activeModel,
         tokens: estimateTokens(finalMessages),
         localEnabled,
         latency: elapsed,
@@ -439,32 +434,40 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
       const errorMessages = [...newMessages, errMsg];
       const updatedState: SharedState = {
         messages: errorMessages,
-        provider: routerProvider,
-        model: useLocal ? 'llama3.2' : activeModel,
+        provider: activeProvider,
+        model: activeModel,
         tokens: estimateTokens(errorMessages),
         localEnabled,
       };
       onTTEError(msg, updatedState);
     }
-  }, [router, activeModel, activeProvider, localEnabled, localReady, messages, exit, onTTERequest, onTTEError, onExit]);
+  }, [router, activeModel, activeProvider, localEnabled, messages, exit, onTTERequest, onTTEError, onExit]);
 
   const handleSendSync = useCallback((v: string) => { void handleSend(v); }, [handleSend]);
 
   const termRows = process.stdout.rows ?? 24;
   const msgCount = messages.filter(m => m.role !== 'error').length;
 
+  // ── Boot screen ───────────────────────────────────────────────────────────
+  if (phase === 'booting') {
+    return (
+      <Box flexDirection="column" height={termRows}>
+        <BootScreen statuses={providerStatuses} spinChar={spinChar} animTick={animTick} />
+      </Box>
+    );
+  }
+
+  // ── Chat UI ───────────────────────────────────────────────────────────────
   return (
     <Box flexDirection="column" height={termRows}>
-      <TopBar
+      <Header
         streaming={streaming}
         provider={activeProvider}
         model={activeModel}
         tokens={tokenCount > 0 ? tokenCount : undefined}
         messageCount={msgCount > 0 ? msgCount : undefined}
         localEnabled={localEnabled}
-        localReady={localReady}
         animTick={animTick}
-        tickerPos={tickerPos}
         spinChar={spinChar}
         latency={latency}
       />
@@ -477,6 +480,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
             activeModel={activeModel}
             localEnabled={localEnabled}
             onToggleLocal={handleToggleLocal}
+            animTick={animTick}
           />
         </Box>
       ) : (
@@ -489,6 +493,7 @@ export function App({ provider, model, initialState, onTTERequest, onTTEError, o
           spinChar={spinChar}
           provider={activeProvider}
           model={activeModel}
+          animTick={animTick}
         />
       )}
     </Box>
