@@ -1,2 +1,4 @@
 packages:
   - 'packages/*'
+  - 'packages/effects'
+  - 'packages/idle'

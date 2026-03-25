@@ -13,6 +13,8 @@ import type { GlobalOptions } from '../index.js';
 import { checkTte, autoInstallTte, displayResponse, display } from './effects.js';
 import { loadSettings } from './app.js';
 import type { SharedState } from './app.js';
+import { IdleTracker, launchGame, PetManager } from '@spazzatura/idle';
+import { runEffect } from '@spazzatura/effects';
 
 export interface TUIOptions {
   readonly provider?: string;
@@ -26,6 +28,20 @@ type TTEEvent =
   | { type: 'tteError'; response: string; state: SharedState };
 
 export async function startTUI(options: TUIOptions): Promise<void> {
+  // ── Idle tracker — thunderstorm at 30s, virtual pet at 60s ────────────────
+  const idleTracker = new IdleTracker();
+  const pet = new PetManager();
+  idleTracker.on('idle:30s', () => {
+    void runEffect('thunderstorm', '  spazzatura  ').then(() => launchGame());
+  });
+  idleTracker.on('idle:60s', () => {
+    void pet.spawn();
+  });
+  idleTracker.on('active', () => {
+    pet.dismiss();
+  });
+  idleTracker.start();
+
   try {
     // ── TTE availability (fire-and-forget install if missing) ─────────────────
     const tteOk = await checkTte();
@@ -74,6 +90,8 @@ export async function startTUI(options: TUIOptions): Promise<void> {
 
       if (event.type === 'exit') {
         shouldExit = true;
+        idleTracker.stop();
+        pet.dismiss();
         continue;
       }
 

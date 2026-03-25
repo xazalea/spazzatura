@@ -69,12 +69,25 @@ export class QwenProvider implements Provider {
 
   async getHealth(): Promise<ProviderStatus> {
     const configured = !!process.env['QWEN_COOKIE'];
+    if (!configured) {
+      return {
+        name: this.name,
+        available: false,
+        lastChecked: new Date(),
+        models: this.getModels(),
+        error: 'QWEN_COOKIE not set',
+      };
+    }
+    const start = Date.now();
+    const alive = await this.native.checkTokenLive();
+    const latency = Date.now() - start;
     return {
       name: this.name,
-      available: configured,
+      available: alive,
+      latency,
       lastChecked: new Date(),
       models: this.getModels(),
-      ...(configured ? {} : { error: 'QWEN_COOKIE not set' }),
+      ...(alive ? {} : { error: 'QWEN_COOKIE is set but token is not live' }),
     };
   }
 }

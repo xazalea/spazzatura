@@ -34,6 +34,18 @@ export { createWebTool, WebTool, type WebToolConfig } from './tools/web.js';
 export { createCodeTool, CodeTool, type CodeToolConfig } from './tools/code.js';
 export { createMemoryTool, MemoryTool, type MemoryToolConfig } from './tools/memory.js';
 
+// Production-grade agentic runtime (ported from Codebuff)
+export { AgentRuntime, type AgentEvent, type AgentRuntimeOptions } from './runtime/agent-runtime.js';
+export { runAgent, type RunAgentOptions } from './runtime/run.js';
+
+// Codebuff-ported tools
+export { ChangeFileTool, createChangeFileTool, type ChangeFileConfig } from './tools/change-file.js';
+export { ApplyPatchTool, createApplyPatchTool, type ApplyPatchConfig } from './tools/apply-patch.js';
+export { CodeSearchTool, createCodeSearchTool, type CodeSearchConfig } from './tools/code-search.js';
+export { GlobTool, createGlobTool, type GlobConfig } from './tools/glob.js';
+export { ListDirectoryTool, createListDirectoryTool, type ListDirectoryConfig } from './tools/list-directory.js';
+export { RunTerminalTool, createRunTerminalTool, type RunTerminalConfig } from './tools/run-terminal.js';
+
 // Built-in agents (factory functions and configs)
 export { createCoderAgent, CODER_CONFIG } from './builtin/coder.js';
 export { createResearcherAgent, RESEARCHER_CONFIG } from './builtin/researcher.js';
@@ -70,3 +82,41 @@ export type { ValidationIssue, ValidationResult, ValidatorOptions, ValidationLoo
 
 // Agent factory (with provider support)
 export { createAgent } from './agent.js';
+
+// Hooks registry and ultrawork detection
+export {
+  HookRegistry,
+  hookRegistry,
+} from './hooks/registry.js';
+
+export type {
+  HookType,
+  HookPayloads,
+  HookHandler,
+  ChatMessagePayload,
+  ToolBeforePayload,
+  ToolAfterPayload,
+  SystemTransformPayload,
+  ChatParamsPayload,
+} from './hooks/registry.js';
+
+export {
+  detectUltrawork,
+  resolveUltraworkOverride,
+  resolveValidUltraworkVariant,
+  applyUltraworkOverride,
+} from './hooks/ultrawork.js';
+
+export type {
+  UltraworkConfig,
+  UltraworkOverrideResult,
+  AvailableModel,
+} from './hooks/ultrawork.js';
+
+// Sisyphus context types (for dynamic prompt building)
+export type {
+  AvailableAgent,
+  AvailableSkill,
+  AvailableCategory,
+  SisyphusContext,
+} from './builtin/sisyphus.js';

@@ -6,6 +6,7 @@
 import * as readline from 'readline';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import { runEffect } from '@spazzatura/effects';
 import { formatMarkdown } from './ui/markdown.js';
 import { createSpinner } from './ui/spinner.js';
 import { output } from './utils/output.js';
@@ -287,6 +288,7 @@ async function changeModel(state: REPLState, model?: string): Promise<void> {
     return;
   }
 
+  await runEffect('spotlights', 'Select model');
   const answers = await inquirer.prompt([
     {
       type: 'list',
@@ -329,6 +331,7 @@ async function changeProvider(state: REPLState, provider?: string): Promise<void
     return;
   }
 
+  await runEffect('spotlights', 'Select provider');
   const answers = await inquirer.prompt([
     {
       type: 'list',

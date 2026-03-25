@@ -165,10 +165,22 @@ export class MiniMaxNativeProvider {
     const unix = String(Date.now());
     const query = buildQueryString(device.userId, device.deviceId, unix);
 
-    // Combine all messages into a single prompt (MiniMax is single-turn)
-    const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content ?? '';
+    // Build the message content.
+    // Single-message: pass through directly.
+    // Multi-turn: merge with "role:content\n" prefix format (vendor messagesPrepare logic),
+    // ending with "assistant:\n" to prompt completion.
     const chatID = '0';
     const form = '';
+    let lastUserMsg: string;
+    if (messages.length <= 1) {
+      lastUserMsg = messages[0]?.content ?? '';
+    } else {
+      lastUserMsg = (
+        messages.map(m => `${m.role}:${m.content}`).join('\n') + '\nassistant:\n'
+      )
+        // Remove MD image URLs to avoid hallucination
+        .replace(/!\[.+?\]\(.+?\)/g, '');
+    }
 
     const boundary = `----FormBoundary${uuid().replace(/-/g, '')}`;
     const formParts = [

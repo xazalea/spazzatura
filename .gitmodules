@@ -46,3 +46,6 @@
 [submodule "vendor/free-gpt4-web"]
 	path = vendor/free-gpt4-web
 	url = https://github.com/aledipa/Free-GPT4-WEB-API
+[submodule "vendor/terminaltexteffects"]
+	path = vendor/terminaltexteffects
+	url = https://github.com/ChrisBuilds/terminaltexteffects

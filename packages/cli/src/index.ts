@@ -17,6 +17,7 @@ import { configCommand } from './commands/config.js';
 import { providerCommand } from './commands/provider.js';
 import { initAuth } from './auth/index.js';
 import { registerCleanup } from './services/manager.js';
+import { loadCustomCommands, renderTemplate } from './commands/custom-commands.js';
 
 // Version is injected at build time by tsup define — no runtime file reads needed
 declare const __SPAZ_VERSION__: string;
@@ -160,6 +161,72 @@ function makeUltraworkCommand(): Command {
 }
 
 /**
+ * Register .spazzatura/commands/*.md files as CLI subcommands.
+ * Each custom command becomes `spazzatura <name> [prompt]`.
+ */
+async function registerCustomCommands(program: Command): Promise<void> {
+  try {
+    const commands = await loadCustomCommands();
+    for (const cc of commands) {
+      const sub = new Command(cc.name)
+        .description(cc.description)
+        .argument('[prompt]', 'Input prompt (replaces {{PROMPT}} in the template)')
+        .option('-f, --file <path>', 'File to include as context (replaces {{FILES}})')
+        .action(async (prompt: string | undefined, opts: { file?: string }) => {
+          const { createRouter, getDefaultRoutingConfig, getDefaultProviderConfig, detectAvailableProviders } = await import('@spazzatura/provider');
+          const available = detectAvailableProviders();
+          const cfgs = available
+            .filter(p => p.configured || p.free)
+            .flatMap(p => { try { return [getDefaultProviderConfig(p.type)]; } catch { return []; } });
+          const router = createRouter(cfgs, getDefaultRoutingConfig());
+
+          let filesContext = '';
+          if (opts.file) {
+            const { readFileSync } = await import('fs');
+            try {
+              filesContext = readFileSync(opts.file, 'utf-8');
+            } catch {
+              console.error(`Could not read file: ${opts.file}`);
+              process.exit(1);
+            }
+          }
+
+          const rendered = renderTemplate(cc.template, {
+            PROMPT: prompt ?? '',
+            FILES: filesContext,
+          });
+
+          process.stdout.write('\n');
+          for await (const chunk of router.stream(
+            [{ role: 'user', content: rendered }],
+            {}
+          )) {
+            if (chunk.delta) process.stdout.write(chunk.delta);
+            if (chunk.done) break;
+          }
+          process.stdout.write('\n\n');
+        });
+
+      program.addCommand(sub);
+    }
+  } catch {
+    // Never block startup if custom commands fail to load
+  }
+}
+
+// Play command — launch mini-games (snake or tetris)
+function makePlayCommand(): Command {
+  const cmd = new Command('play');
+  cmd.description('Play a mini-game (snake or tetris) — also auto-triggers during idle');
+  cmd.option('--game <name>', 'Game to play: snake or tetris (default: random)');
+  cmd.action(async (opts: { game?: string }) => {
+    const { launchGame } = await import('@spazzatura/idle');
+    await launchGame(opts.game as 'snake' | 'tetris' | undefined);
+  });
+  return cmd;
+}
+
+/**
  * Main entry point
  */
 export async function main(): Promise<void> {
@@ -171,6 +238,9 @@ export async function main(): Promise<void> {
   const program = createProgram();
   program.addCommand(makeAuthCommand());
   program.addCommand(makeUltraworkCommand());
+  program.addCommand(makePlayCommand());
+  // Register user-defined .spazzatura/commands/*.md commands
+  await registerCustomCommands(program);
 
   try {
     await program.parseAsync(process.argv);

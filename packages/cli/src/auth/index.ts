@@ -6,6 +6,8 @@ export { loadAuthStore, saveAuthStore, getToken, setToken, isTokenValid, injectT
 export { runAllAuth, runSingleAuth } from './automator.js';
 export type { AuthResult, AuthReport } from './automator.js';
 export type { ServiceToken, AuthStore } from './token-store.js';
+export { OAuthManager, oauthManager } from './oauth.js';
+export type { TokenResult } from './oauth.js';
 
 import { injectTokensToEnv } from './token-store.js';
 
